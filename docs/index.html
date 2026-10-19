@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Node Interview Prep Dashboard</title>
+<link id="hljs-css" rel="stylesheet" href="vendor/hljs-light.css">
+<style>
+  /* Layout: fixed top bar, left nav (parts + sections), reading pane on the right. */
+  :root {
+    --bg: #fbfbf9; --panel: #f2f2ee; --fg: #1d2326; --muted: #5d676c; --line: #dcdcd4;
+    --accent: #0b6e69; --accent-fg: #ffffff; --ok: #2f7d32; --code-bg: #f0f0ea; --mark: #fff2a8;
+    --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, "Cascadia Code", Consolas, Menlo, monospace;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14181a; --panel: #1b2124; --fg: #dde3e5; --muted: #98a4a9; --line: #2c3539;
+      --accent: #4fc3bb; --accent-fg: #0b1112; --ok: #6fcf74; --code-bg: #1f272a; --mark: #5a4d00;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14181a; --panel: #1b2124; --fg: #dde3e5; --muted: #98a4a9; --line: #2c3539;
+    --accent: #4fc3bb; --accent-fg: #0b1112; --ok: #6fcf74; --code-bg: #1f272a; --mark: #5a4d00;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.6 var(--font); }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  header {
+    position: fixed; inset: 0 0 auto 0; height: 52px; z-index: 20; display: flex; align-items: center; gap: 12px;
+    padding: 0 16px; background: var(--panel); border-bottom: 1px solid var(--line);
+  }
+  header h1 { font-size: 15px; margin: 0; white-space: nowrap; letter-spacing: .01em; }
+  #menu-btn { display: none; border: 1px solid var(--line); background: var(--bg); border-radius: 6px; padding: 4px 10px; }
+  #search { flex: 1; max-width: 420px; min-width: 0; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
+  .spacer { flex: 1; }
+  .overall { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .bar { width: 110px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--ok); }
+  #theme-btn { border: 1px solid var(--line); background: var(--bg); border-radius: 6px; padding: 4px 10px; }
+
+  nav {
+    position: fixed; top: 52px; bottom: 0; left: 0; width: 320px; overflow-y: auto; padding: 12px 8px 40px;
+    background: var(--panel); border-right: 1px solid var(--line);
+  }
+  nav .group { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); padding: 14px 10px 4px; }
+  nav .part { display: block; width: 100%; text-align: left; border: 0; background: none; border-radius: 6px; padding: 7px 10px; }
+  nav .part:hover { background: var(--line); }
+  nav .part.active { background: var(--accent); color: var(--accent-fg); }
+  nav .part .t { display: block; font-size: 13px; line-height: 1.35; }
+  nav .part .m { display: flex; align-items: center; gap: 8px; font-size: 11px; opacity: .85; margin-top: 3px; }
+  nav .part .bar { width: 70px; height: 4px; }
+  nav .part.active .bar { background: rgba(255,255,255,.35); }
+  nav .part.active .bar > i { background: var(--accent-fg); }
+  nav .secs { margin: 2px 0 8px 14px; border-left: 2px solid var(--line); }
+  nav .sec { display: flex; gap: 6px; width: 100%; text-align: left; border: 0; background: none; padding: 3px 8px; font-size: 12.5px; line-height: 1.35; color: var(--muted); }
+  nav .sec:hover { color: var(--fg); }
+  nav .sec.cur { color: var(--accent); font-weight: 600; }
+  nav .sec .ck { flex: none; width: 14px; color: var(--ok); }
+
+  main { margin-left: 320px; padding: 72px max(24px, 4vw) 80px; min-width: 0; }
+  #content { max-width: 880px; margin: 0 auto; min-width: 0; }
+  .status { color: var(--muted); padding: 24px 0; }
+
+  #content h1, #content h2, #content h3, #content h4 { line-height: 1.25; scroll-margin-top: 68px; text-wrap: balance; }
+  #content h1 { font-size: 28px; margin-top: 0; }
+  #content h2 { font-size: 22px; margin: 2.2em 0 .6em; padding-top: .6em; border-top: 1px solid var(--line); display: flex; align-items: baseline; gap: 12px; }
+  #content h2 .txt { flex: 1; min-width: 0; }
+  #content h3 { font-size: 18px; margin-top: 1.8em; }
+  #content h4 { font-size: 15px; margin-top: 1.4em; }
+  .done-btn { flex: none; font-size: 12px; border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 2px 10px; color: var(--muted); }
+  .done-btn.on { border-color: var(--ok); color: var(--ok); }
+  #content a { color: var(--accent); }
+  #content p, #content li { max-width: 78ch; }
+  #content blockquote { margin: 1em 0; padding: .1em 1em; border-left: 3px solid var(--accent); background: var(--panel); }
+  #content hr { border: 0; border-top: 1px solid var(--line); margin: 2em 0; }
+  #content code { font-family: var(--mono); font-size: .88em; background: var(--code-bg); padding: .1em .35em; border-radius: 4px; }
+  #content pre { margin: 1em 0; background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; overflow-x: auto; }
+  #content pre code { background: none; padding: 0; font-size: 13px; line-height: 1.5; }
+  .tablewrap { overflow-x: auto; margin: 1em 0; }
+  #content table { border-collapse: collapse; font-size: 14px; }
+  #content th, #content td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+  #content th { background: var(--panel); }
+  #content input[type="checkbox"] { accent-color: var(--accent); }
+  .hit { background: var(--mark); color: inherit; border-radius: 2px; }
+
+  .results .r { display: block; width: 100%; text-align: left; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 8px 12px; margin: 0 0 8px; }
+  .results .r:hover { border-color: var(--accent); }
+  .results .loc { font-size: 12px; color: var(--muted); }
+  .results .snip { font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; }
+
+  @media (max-width: 860px) {
+    #menu-btn { display: inline-block; }
+    .overall .bar, header h1 { display: none; }
+    nav { transform: translateX(-100%); transition: transform .15s; z-index: 15; width: min(320px, 86vw); }
+    body.nav-open nav { transform: none; }
+    main { margin-left: 0; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  }
+  @media (prefers-reduced-motion: reduce) { nav { transition: none; } }
+</style>
+</head>
+<body>
+<header>
+  <button id="menu-btn" aria-label="Toggle navigation">Menu</button>
+  <h1>Node Interview Prep</h1>
+  <input id="search" type="search" placeholder="Search all parts ( / )" aria-label="Search all parts" autocomplete="off">
+  <span class="spacer"></span>
+  <div class="overall"><span id="overall-text">0 / 0 sections</span><span class="bar"><i id="overall-bar"></i></span></div>
+  <button id="theme-btn" aria-label="Toggle theme">Theme</button>
+</header>
+<nav id="nav" aria-label="Parts"></nav>
+<main><div id="content"><p class="status">Loading...</p></div></main>
+
+<script src="vendor/marked.min.js"></script>
+<script src="vendor/highlight.min.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = (s, r = document) => r.querySelector(s);
+  const navEl = $('#nav'), contentEl = $('#content');
+  let parts = [];
+  let current = null;           // active part file name
+  let tocObserver = null, hlObserver = null;
+
+  // ---- per-viewer storage (progress, theme); tolerate it being unavailable ----
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* ignore */ } },
+  };
+  let done = store.get('prep.done', {});           // { "file::Section title": true }
+  const key = (file, title) => file + '::' + title;
+  const saveDone = () => store.set('prep.done', done);
+
+  // ---- theme ----
+  function applyTheme(t) {
+    if (t) document.documentElement.setAttribute('data-theme', t); else document.documentElement.removeAttribute('data-theme');
+    const dark = t ? t === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+    $('#hljs-css').href = dark ? 'vendor/hljs-dark.css' : 'vendor/hljs-light.css';
+  }
+  let theme = store.get('prep.theme', null);
+  applyTheme(theme);
+  $('#theme-btn').addEventListener('click', () => {
+    const dark = theme ? theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+    theme = dark ? 'light' : 'dark'; store.set('prep.theme', theme); applyTheme(theme);
+  });
+
+  // ---- sidebar ----
+  const GROUPS = [
+    ['Plan', (f) => f.startsWith('00_')],
+    ['Weekly notes', (f) => /^0[1-8]_/.test(f)],
+    ['Question banks', (f) => /^(09|10)_/.test(f)],
+    ['Practice and project', (f) => /^(11|12)_/.test(f)],
+  ];
+  const shortTitle = (p) => p.file.replace(/^\d\d_/, '').replace(/\.md$/, '').replace(/_/g, ' ');
+
+  function partProgress(p) {
+    const total = p.sections.length;
+    const n = p.sections.filter((s) => done[key(p.file, s)]).length;
+    return { n, total };
+  }
+
+  function renderNav() {
+    navEl.textContent = '';
+    for (const [label, test] of GROUPS) {
+      const list = parts.filter((p) => test(p.file));
+      if (!list.length) continue;
+      const g = document.createElement('div'); g.className = 'group'; g.textContent = label; navEl.appendChild(g);
+      for (const p of list) {
+        const { n, total } = partProgress(p);
+        const b = document.createElement('button');
+        b.className = 'part' + (p.file === current ? ' active' : '');
+        b.dataset.file = p.file;
+        b.innerHTML = '<span class="t"></span><span class="m"><span class="bar"><i></i></span><span class="c"></span></span>';
+        $('.t', b).textContent = shortTitle(p);
+        $('.bar i', b).style.width = total ? Math.round((n / total) * 100) + '%' : '0';
+        $('.c', b).textContent = n + '/' + total + ' sections - ' + p.lines.toLocaleString() + ' lines';
+        b.addEventListener('click', () => { location.hash = '#' + encodeURIComponent(p.file); document.body.classList.remove('nav-open'); });
+        navEl.appendChild(b);
+        if (p.file === current) navEl.appendChild(buildSecList(p));
+      }
+    }
+    updateOverall();
+  }
+
+  function buildSecList(p) {
+    const wrap = document.createElement('div'); wrap.className = 'secs';
+    for (const s of p.sections) {
+      const b = document.createElement('button'); b.className = 'sec'; b.dataset.title = s;
+      b.innerHTML = '<span class="ck"></span><span class="lbl"></span>';
+      $('.lbl', b).textContent = s;
+      $('.ck', b).textContent = done[key(p.file, s)] ? '[x]' : '';
+      b.addEventListener('click', () => {
+        const el = [...contentEl.querySelectorAll('h2')].find((h) => h.dataset.title === s);
+        if (el) { el.scrollIntoView({ block: 'start' }); document.body.classList.remove('nav-open'); }
+      });
+      wrap.appendChild(b);
+    }
+    return wrap;
+  }
+
+  function updateOverall() {
+    let n = 0, total = 0;
+    for (const p of parts) { const r = partProgress(p); n += r.n; total += r.total; }
+    $('#overall-text').textContent = n + ' / ' + total + ' sections done';
+    $('#overall-bar').style.width = total ? Math.round((n / total) * 100) + '%' : '0';
+  }
+
+  // ---- markdown rendering ----
+  const slug = (s) => s.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-');
+
+  function renderMarkdown(text) {
+    const seen = new Map();
+    const renderer = new marked.Renderer();
+    renderer.heading = (txt, level, raw) => {
+      let id = slug(raw) || 'section';
+      const c = seen.get(id) || 0; seen.set(id, c + 1);
+      if (c) id += '-' + c;
+      return '<h' + level + ' id="' + id + '">' + txt + '</h' + level + '>';
+    };
+    renderer.table = (header, body) => '<div class="tablewrap"><table><thead>' + header + '</thead><tbody>' + body + '</tbody></table></div>';
+    return marked.parse(text, { gfm: true, breaks: false, renderer });
+  }
+
+  function lazyHighlight() {
+    if (hlObserver) hlObserver.disconnect();
+    hlObserver = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (!e.isIntersecting) continue;
+        hlObserver.unobserve(e.target);
+        try { hljs.highlightElement(e.target); } catch { /* unknown language */ }
+      }
+    }, { rootMargin: '600px 0px' });
+    contentEl.querySelectorAll('pre code').forEach((c) => hlObserver.observe(c));
+  }
+
+  function decorateSections(p) {
+    contentEl.querySelectorAll('h2').forEach((h) => {
+      const title = h.textContent.trim(); h.dataset.title = title;
+      const span = document.createElement('span'); span.className = 'txt'; span.innerHTML = h.innerHTML; h.textContent = ''; h.appendChild(span);
+      const btn = document.createElement('button'); btn.className = 'done-btn'; btn.type = 'button';
+      const paint = () => { const on = !!done[key(p.file, title)]; btn.classList.toggle('on', on); btn.textContent = on ? 'Done' : 'Mark done'; };
+      paint();
+      btn.addEventListener('click', () => {
+        const k = key(p.file, title);
+        if (done[k]) delete done[k]; else done[k] = true;
+        saveDone(); paint(); renderNavKeepScroll();
+      });
+      h.appendChild(btn);
+    });
+    // Task-list checkboxes from markdown are display-only; make them interactive and remembered.
+    contentEl.querySelectorAll('input[type="checkbox"]').forEach((cb, i) => {
+      const k = 'cb::' + p.file + '::' + i; cb.disabled = false;
+      cb.checked = store.get(k, cb.checked);
+      cb.addEventListener('change', () => store.set(k, cb.checked));
+    });
+  }
+
+  function renderNavKeepScroll() { const y = navEl.scrollTop; renderNav(); navEl.scrollTop = y; markCurrentSection(); }
+
+  let curSec = null;
+  function markCurrentSection() {
+    navEl.querySelectorAll('.sec').forEach((b) => b.classList.toggle('cur', b.dataset.title === curSec));
+  }
+  function observeSections() {
+    if (tocObserver) tocObserver.disconnect();
+    tocObserver = new IntersectionObserver((entries) => {
+      for (const e of entries) if (e.isIntersecting) { curSec = e.target.dataset.title; markCurrentSection(); }
+    }, { rootMargin: '-60px 0px -75% 0px' });
+    contentEl.querySelectorAll('h2').forEach((h) => tocObserver.observe(h));
+  }
+
+  async function openPart(file, anchor) {
+    const p = parts.find((x) => x.file === file);
+    if (!p) { contentEl.innerHTML = '<p class="status">Unknown part.</p>'; return; }
+    current = file; curSec = null;
+    renderNav();
+    contentEl.innerHTML = '<p class="status">Rendering ' + p.lines.toLocaleString() + ' lines...</p>';
+    const res = await fetch('md/' + encodeURIComponent(file));
+    if (!res.ok) { contentEl.innerHTML = '<p class="status">Could not load ' + file + '</p>'; return; }
+    const text = await res.text();
+    if (current !== file) return; // user navigated away while loading
+    contentEl.innerHTML = renderMarkdown(text);
+    document.title = shortTitle(p) + ' - Node Interview Prep';
+    decorateSections(p); lazyHighlight(); observeSections();
+    if (anchor) { const el = document.getElementById(anchor); if (el) el.scrollIntoView(); else window.scrollTo(0, 0); }
+    else window.scrollTo(0, 0);
+    store.set('prep.last', file);
+  }
+
+  // ---- search ----
+  let searchTimer = null;
+  const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  // Static site: no server, so search runs in the browser over the part files (fetched once, then cached).
+  const textCache = new Map();
+  async function partLines(file) {
+    if (!textCache.has(file)) {
+      const res = await fetch('md/' + encodeURIComponent(file));
+      textCache.set(file, res.ok ? (await res.text()).split(/\r?\n/) : []);
+    }
+    return textCache.get(file);
+  }
+  async function searchAll(q) {
+    const needle = q.toLowerCase(), hits = [];
+    for (const p of parts) {
+      const lines = await partLines(p.file);
+      let inFence = false, section = '';
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (/^\s*(```|~~~)/.test(line)) inFence = !inFence;
+        if (!inFence && /^#{2,3} /.test(line)) section = line.replace(/^#+\s+/, '').trim();
+        if (line.toLowerCase().includes(needle)) {
+          hits.push({ file: p.file, line: i + 1, section, text: line.trim().slice(0, 240) });
+          if (hits.length >= 150) return hits;
+        }
+      }
+    }
+    return hits;
+  }
+  let searchToken = 0;
+  async function runSearch(q) {
+    const token = ++searchToken;
+    current = null; renderNav();
+    contentEl.innerHTML = '<p class="status">Searching...</p>';
+    const hits = await searchAll(q);
+    if (searchToken !== token) return; // a newer search replaced this one
+    const re = new RegExp('(' + q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig');
+    const box = document.createElement('div'); box.className = 'results';
+    box.innerHTML = '<h1>Search: ' + esc(q) + '</h1><p class="status">' + hits.length + (hits.length >= 150 ? '+' : '') + ' matches (click to open the section)</p>';
+    for (const h of hits) {
+      const b = document.createElement('button'); b.className = 'r'; b.type = 'button';
+      const part = parts.find((p) => p.file === h.file);
+      b.innerHTML = '<div class="loc">' + esc(shortTitle(part)) + ' - line ' + h.line + (h.section ? ' - ' + esc(h.section) : '') + '</div><div class="snip">' + esc(h.text).replace(re, '<mark class="hit">$1</mark>') + '</div>';
+      b.addEventListener('click', () => { location.hash = '#' + encodeURIComponent(h.file) + '|' + slug(h.section || ''); });
+      box.appendChild(b);
+    }
+    contentEl.textContent = ''; contentEl.appendChild(box); window.scrollTo(0, 0);
+  }
+  $('#search').addEventListener('input', (e) => {
+    clearTimeout(searchTimer);
+    const q = e.target.value.trim();
+    if (q.length < 2) return;
+    searchTimer = setTimeout(() => runSearch(q), 300);
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === '/' && document.activeElement.tagName !== 'INPUT') { e.preventDefault(); $('#search').focus(); }
+  });
+
+  // ---- routing: #<file>  or  #<file>|<anchor> ----
+  function route() {
+    const raw = decodeURIComponent(location.hash.replace(/^#/, ''));
+    if (!raw) { openPart(store.get('prep.last', parts[0] && parts[0].file) || parts[0].file); return; }
+    const [file, anchor] = raw.split('|');
+    if (file === current && anchor) { const el = document.getElementById(anchor); if (el) el.scrollIntoView(); return; }
+    openPart(file, anchor);
+  }
+  window.addEventListener('hashchange', route);
+  $('#menu-btn').addEventListener('click', () => document.body.classList.toggle('nav-open'));
+
+  (async function init() {
+    try {
+      parts = await (await fetch('parts.json')).json();
+      if (!parts.length) { contentEl.innerHTML = '<p class="status">No parts found in ../interview_prep</p>'; return; }
+      renderNav(); route();
+    } catch (err) {
+      contentEl.innerHTML = '<p class="status">Could not load parts.json. If you opened this file directly, run: node scripts/build.mjs then node server.js</p>';
+    }
+  })();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "name": "node-interview-prep",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Node.js backend interview prep notes with a static dashboard",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "node server.js"
+  }
+}
