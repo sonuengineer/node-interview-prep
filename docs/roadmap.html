@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Backend Roadmap Planner — Syllabus Generator</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1e222b; --line:#2a2f3a;
+    --text:#e6e8ee; --dim:#98a0b0; --accent:#5b9dff; --accent2:#3ddc97;
+    --warn:#ffb547; --bad:#ff6b6b; --core:#5b9dff; --new:#b18cff; --extra:#3ddc97; --deep:#ffb547;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:14px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  header{padding:22px 26px;border-bottom:1px solid var(--line);background:var(--panel)}
+  h1{margin:0 0 6px;font-size:20px}
+  .sub{color:var(--dim);font-size:13px;max-width:900px}
+  .wrap{max-width:1280px;margin:0 auto;padding:22px 26px 80px}
+  .controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;
+    background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px}
+  label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--dim);margin-bottom:6px}
+  select{width:100%;background:var(--panel2);color:var(--text);border:1px solid var(--line);
+    border-radius:8px;padding:9px 10px;font-size:13px;cursor:pointer}
+  select:focus{outline:none;border-color:var(--accent)}
+  .row2{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;align-items:center}
+  button{background:var(--accent);color:#06101f;border:0;border-radius:8px;padding:9px 14px;
+    font-weight:600;font-size:13px;cursor:pointer}
+  button.ghost{background:transparent;color:var(--text);border:1px solid var(--line)}
+  button.ghost:hover{border-color:var(--accent)}
+  button:hover{filter:brightness(1.08)}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));gap:12px;margin-top:18px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .card .k{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--dim)}
+  .card .v{font-size:22px;font-weight:700;margin-top:3px}
+  .card .n{font-size:11px;color:var(--dim);margin-top:2px}
+  .alert{border-radius:10px;padding:12px 14px;margin-top:12px;font-size:13px;border:1px solid}
+  .alert.warn{background:rgba(255,181,71,.09);border-color:rgba(255,181,71,.4);color:#ffd8a0}
+  .alert.bad{background:rgba(255,107,107,.09);border-color:rgba(255,107,107,.4);color:#ffb3b3}
+  .alert.ok{background:rgba(61,220,151,.08);border-color:rgba(61,220,151,.35);color:#a8f0cd}
+  .alert b{color:#fff}
+  h2{font-size:14px;margin:30px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--line);
+    text-transform:uppercase;letter-spacing:.08em;color:var(--dim)}
+  table{width:100%;border-collapse:collapse;background:var(--panel);border-radius:12px;overflow:hidden}
+  th{background:var(--panel2);color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.07em;
+    text-align:left;padding:10px 12px;font-weight:600}
+  td{padding:9px 12px;border-top:1px solid var(--line);vertical-align:top;font-size:13px}
+  td.d{white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--dim);width:74px}
+  td.h{white-space:nowrap;font-variant-numeric:tabular-nums;text-align:right;width:72px;color:var(--dim)}
+  td.p{color:var(--accent);font-weight:600;width:36%}
+  .u{display:inline-block;margin:2px 6px 2px 0;padding:2px 8px;border-radius:999px;font-size:12px;
+    background:var(--panel2);border:1px solid var(--line)}
+  .t1{border-left:3px solid var(--core)} .t2{border-left:3px solid var(--new)}
+  .t3{border-left:3px solid var(--extra)} .t4{border-left:3px solid var(--deep)}
+  .tag{display:inline-block;font-size:10px;padding:1px 6px;border-radius:4px;margin-left:6px;
+    text-transform:uppercase;letter-spacing:.05em;vertical-align:middle}
+  .tag.core{background:rgba(91,157,255,.18);color:#9cc4ff}
+  .tag.new{background:rgba(177,140,255,.18);color:#cbb2ff}
+  .tag.extra{background:rgba(61,220,151,.16);color:#8fe8c4}
+  .tag.deep{background:rgba(255,181,71,.16);color:#ffd394}
+  .ms{color:var(--accent2);font-size:12.5px;margin-top:5px;display:block}
+  tr.buffer td{background:rgba(255,255,255,.03);color:var(--dim);font-style:italic}
+  tr.spare td{background:rgba(61,220,151,.05);color:#8fe8c4;font-style:italic}
+  tr.milestone td{background:rgba(255,181,71,.08);color:#ffd394;font-weight:600}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--dim);margin-top:10px}
+  .dot{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px}
+  details{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-top:12px}
+  summary{cursor:pointer;font-weight:600;font-size:13px}
+  .note{color:var(--dim);font-size:12px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:860px){.grid2{grid-template-columns:1fr}}
+  .pill{display:inline-block;background:var(--panel2);border:1px solid var(--line);border-radius:6px;
+    padding:2px 8px;font-size:11.5px;margin:2px 4px 2px 0}
+  .st{display:inline-block;font-size:10.5px;padding:1px 7px;border-radius:999px;margin-left:8px;letter-spacing:.04em}
+  .st.full{background:rgba(61,220,151,.16);color:#8fe8c4}
+  .st.part{background:rgba(255,181,71,.16);color:#ffd394}
+  .st.zero{background:rgba(255,107,107,.16);color:#ffb3b3}
+  header a{color:var(--accent)}
+  .nls{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}
+  .nl{font-size:11px;padding:1px 7px;border-radius:999px;border:1px solid var(--line);color:var(--accent);text-decoration:none;background:var(--panel2)}
+  .nl:hover{border-color:var(--accent)}
+  .phg{margin-bottom:8px}.phg:last-child{margin-bottom:0}
+  #notes td{vertical-align:top}
+  @media print{.controls,.row2{display:none}body{background:#fff;color:#111}table{background:#fff}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Backend Roadmap Planner</h1>
+  <div class="sub">Apne available hours aur timeline select karo — syllabus apne budget ke hisaab se day-wise generate ho jayega.
+  Jo fit nahi hoga woh &ldquo;Deferred&rdquo; me dikhega. Koi bhi topic chhodna ho toh focus preset use karo.<br><a id="dash-link" href="index.html" target="_blank" rel="noopener">Open the study notes dashboard</a> - every phase below links to the matching notes.</div>
+</header>
+
+<div class="wrap">
+  <div class="controls">
+    <div><label>Hours per day</label>
+      <select id="hours">
+        <option value="0.5">0.5 h — very light</option>
+        <option value="1">1 h — light</option>
+        <option value="1.5">1.5 h</option>
+        <option value="2" selected>2 h — working dev, side hustle</option>
+        <option value="3">3 h</option>
+        <option value="4">4 h</option>
+        <option value="6">6 h — full focus</option>
+        <option value="8">8 h — full-time</option>
+      </select></div>
+    <div><label>Total days available</label>
+      <select id="days">
+        <option value="30">30 days — 1 month sprint</option>
+        <option value="60">60 days — 2 months</option>
+        <option value="90" selected>90 days — 3 months</option>
+        <option value="120">120 days — 4 months</option>
+        <option value="150">150 days — 5 months</option>
+        <option value="180">180 days — 6 months</option>
+        <option value="270">270 days — 9 months</option>
+        <option value="365">365 days — 1 year</option>
+      </select></div>
+    <div><label>Current level</label>
+      <select id="level">
+        <option value="fresher">Fresher — coding nahi aati</option>
+        <option value="early">Early career — &lt;1 yr</option>
+        <option value="working" selected>Working dev — 1–2 yr</option>
+        <option value="mid">Mid — 3–5 yr</option>
+        <option value="senior">Senior — 5+ yr</option>
+      </select></div>
+    <div><label>Language of choice (label only)</label>
+      <select id="lang">
+        <option value="ts">TypeScript / Node</option>
+        <option value="java">Java / Kotlin</option>
+        <option value="go">Go</option>
+        <option value="py">Python</option>
+        <option value="cpp">C++ / Rust</option>
+        <option value="other">Other / decide later</option>
+      </select></div>
+    <div><label>Target role (label only)</label>
+      <select id="role">
+        <option value="general" selected>General backend</option>
+        <option value="java">Java enterprise / fintech</option>
+        <option value="node">Node / TS product company</option>
+        <option value="go">Go — infra &amp; platform</option>
+        <option value="sre">SRE / DevOps</option>
+      </select></div>
+    <div><label>Focus preset</label>
+      <select id="focus">
+        <option value="balanced" selected>Balanced</option>
+        <option value="data">Backend &amp; data heavy</option>
+        <option value="infra">Infra &amp; scale heavy</option>
+        <option value="interview">Interview-ready fast</option>
+      </select></div>
+    <div><label>Buffer / review days</label>
+      <select id="buffer">
+        <option value="0">0 — no buffer</option>
+        <option value="1" selected>1 buffer day per week</option>
+        <option value="2">2 buffer days per week</option>
+      </select></div>
+    <div><label>Extra tracks (optional)</label>
+      <select id="extras">
+        <option value="none" selected>None</option>
+        <option value="dsa">+ DSA &amp; problem solving</option>
+        <option value="k8s">+ Kubernetes</option>
+        <option value="iac">+ Terraform / IaC</option>
+        <option value="all">+ Everything</option>
+      </select></div>
+
+    <div class="row2" style="grid-column:1/-1">
+      <button id="gen">Generate plan</button>
+      <button class="ghost" id="copy">Copy as Markdown</button>
+      <button class="ghost" id="dl">Download .md</button>
+      <button class="ghost" id="print">Print / PDF</button>
+      <span class="note" id="status"></span>
+    </div>
+  </div>
+
+  <div class="cards" id="cards"></div>
+  <div id="alerts"></div>
+
+  <h2>Day-wise plan</h2>
+  <div class="legend">
+    <span><i class="dot" style="background:var(--core)"></i>Core — must learn</span>
+    <span><i class="dot" style="background:var(--new)"></i>Foundations drill (fresher / early)</span>
+    <span><i class="dot" style="background:var(--extra)"></i>Extra enrichment</span>
+    <span><i class="dot" style="background:var(--deep)"></i>Deep dive (senior / explicit)</span>
+  </div>
+  <div style="margin-top:12px"><table id="plan"></table></div>
+
+  <div class="grid2">
+    <div><h2 style="margin-top:26px">Deferred / not reached</h2><div id="deferred"></div></div>
+    <div><h2 style="margin-top:26px">Phase coverage</h2><div id="coverage"></div></div>
+  </div>
+
+  <h2>Study notes vs this roadmap</h2>
+  <div id="notes" style="overflow-x:auto"></div>
+
+  <h2>How your plan was computed</h2>
+  <div id="logic"></div>
+</div>
+
+<script>
+const $=s=>document.querySelector(s);
+/* ================= DATA =================
+   h = deep-work hours (hands-on + reading)
+   tier: 1=core, 2=foundations drill, 3=extra, 4=deep
+   flex: true => trimmable inside core when budget is tight           */
+const T={CORE:1,NEW:2,EXTRA:3,DEEP:4};
+const u=(t,h,tier=T.CORE,flex=false)=>({t,h,tier,flex});
+
+const DATA=[
+{id:'setup',name:'Phase 0 — Setup & Stack',base:1,ms:'Toolchain ready, stack locked',units:[
+  u('Choose your language + lock your stack of record',1,T.CORE,true),
+  u('Editor, formatter, linter, type-checker, debugger setup',1,T.CORE,true),
+  u('Terminal & package-manager fluency',1),
+  u('Git + GitHub workflow (branch, PR, review)',2,T.EXTRA)]},
+{id:'lang',name:'Phase 1 — One Language, Properly',base:6,ms:'Ship a CLI tool in your language',units:[
+  u('Variables, functions, control flow, data structures',4),
+  u('OOP — classes, interfaces, composition over inheritance',6),
+  u('Error handling & custom error types',3),
+  u('Concurrency basics in the language',3),
+  u('Memory basics (references, GC, ownership)',3),
+  u('Package management & dependency hygiene',2),
+  u('Unit testing & test runner',3),
+  u('Debugger skills — breakpoints, stack frames, watch',3),
+  u('Generics / type-level programming',3,T.NEW),
+  u('Build a CLI tool from scratch (no framework)',6,T.CORE,true),
+  u('Language internals / runtime behaviour',6,T.DEEP)]},
+{id:'http',name:'Phase 2 — HTTP, Linux & Networking',base:7,ms:'Can trace a request end-to-end',units:[
+  u('HTTP methods & semantics',1),
+  u('Status codes & their correct use',1),
+  u('Headers, content negotiation, compression',2),
+  u('Cookies, sessions, state management',2),
+  u('REST conventions',2),
+  u('JSON & serialization',1),
+  u('HTTPS / TLS basics',2),
+  u('DNS — how a name becomes an IP',2),
+  u('TCP basics & the handshake',2),
+  u('curl / Postman / DevTools — inspect real traffic',2),
+  u('Shell: files, pipes, redirection, exit codes',4,T.EXTRA),
+  u('Process & resource inspection (ps, top, ss, lsof)',3,T.EXTRA),
+  u('Logs & live debugging (tail, journalctl, strace, gdb)',4,T.EXTRA),
+  u('Docker networking & the localhost trap',3,T.EXTRA),
+  u('Deep TCP/TLS/DNS — wireshark level',4,T.DEEP)]},
+{id:'sec',name:'Phase 3 — Security & Authentication',base:5,ms:'Auth + authorization working end-to-end',units:[
+  u('Password hashing (bcrypt/scrypt/Argon2) + salting',2),
+  u('Sessions vs tokens vs JWT — when each is right',3),
+  u('JWT structure, claims, full verification',3),
+  u('Refresh-token rotation, revocation, reuse detection',2),
+  u('OAuth 2.0, OpenID Connect, PKCE, SSO intuition',5),
+  u('RBAC / ABAC — scoping access to resources',3),
+  u('MFA (TOTP) & safe password-reset flows',2),
+  u('CSRF / XSS / SSRF / SQLi / IDOR — and each defense',4),
+  u('TLS, HSTS, secure / HttpOnly / SameSite cookies',2),
+  u('Secrets management & rotation',2),
+  u('Rate limiting & brute-force protection on auth',2),
+  u('OWASP Top 10 as a per-feature checklist',2,T.CORE,true)]},
+{id:'sql',name:'Phase 4 — SQL',base:6,ms:'Schema designed + queries optimized',units:[
+  u('SELECT / JOIN / aggregation',5),
+  u('GROUP BY + HAVING',3),
+  u('Subqueries & CTEs',3),
+  u('Indexes — which to create and why',3),
+  u('Transactions',3),
+  u('ACID',2),
+  u('Isolation levels',3),
+  u('Locks & deadlocks',3),
+  u('Query optimization + EXPLAIN ANALYZE',4),
+  u('Window functions',3,T.EXTRA),
+  u('Partitioning & full-text search',4,T.DEEP)]},
+{id:'db',name:'Phase 5 — Database Internals',base:6,ms:'You know why the DB is the bottleneck',units:[
+  u('B-Trees & index structure',3),
+  u('Index internals & write cost',2),
+  u('Query planner — how it picks a plan',3),
+  u('Buffer pool / page cache',3),
+  u('WAL (write-ahead log)',3),
+  u('MVCC',3),
+  u('Replication',3),
+  u('Read replicas & read/write split',2),
+  u('Connection pooling & sizing',2),
+  u('Storage engines, vacuum/GC, internals',4,T.DEEP)]},
+{id:'api',name:'Phase 6 — API Design & Contracts',base:4,ms:'API spec written before any code',units:[
+  u('Resource modelling — nouns vs actions',2),
+  u('Pagination (offset vs cursor) + filtering & sorting',3),
+  u('Error contracts & machine-readable codes',2),
+  u('Versioning & deprecation policy',2),
+  u('Idempotency keys for POST',3),
+  u('Long-running ops (202 + status resource)',1,T.EXTRA),
+  u('Rate-limit headers & client contract',1,T.EXTRA),
+  u('OpenAPI spec-first + request validation',3),
+  u('Contract tests between producers & consumers',2,T.CORE,true),
+  u('GraphQL / gRPC',6,T.EXTRA)]},
+{id:'proj1',name:'Phase 7 — First Backend: URL Shortener',base:8,ms:'Shipped & deployed URL shortener',units:[
+  u('Domain model & project scaffolding',3),
+  u('REST API + PostgreSQL CRUD',8),
+  u('Authentication wired in',4),
+  u('URL expiration',2),
+  u('Short-code generation',2),
+  u('Rate limiting',2),
+  u('Tests — unit + integration (Testcontainers)',6),
+  u('E2E smoke tests',3,T.CORE,true),
+  u('Docker — multi-stage, small image, non-root',3),
+  u('CI pipeline with lint + typecheck + test gates',3),
+  u('README + architecture diagram + honest limits',3,T.CORE,true)]},
+{id:'redis',name:'Phase 8 — Caching with Redis',base:5,ms:'Cache with a written invalidation strategy',units:[
+  u('Cache-aside pattern',2),
+  u('TTL',1),
+  u('Invalidation strategies (write-through, evict-on-write)',3),
+  u('Eviction policies',2),
+  u('Cache stampede / single-flight',3),
+  u('Distributed locks (SET NX PX + safe release)',3),
+  u('Redis-based rate limiting',2),
+  u('Fail-open vs fail-closed design',2),
+  u('Redis Cluster / persistence internals',4,T.DEEP)]},
+{id:'queue',name:'Phase 9 — Async Processing & Queues',base:6,ms:'Event-driven feature with retries + DLQ',units:[
+  u('Queue fundamentals — producer/broker/consumer',3),
+  u('Delivery semantics: at-most / at-least / exactly-once',3),
+  u('Acks, visibility timeout, prefetch',3),
+  u('Retries with exponential backoff + jitter',3),
+  u('Dead-letter queues & poison messages',2),
+  u('Idempotent consumers — the real "exactly-once"',3),
+  u('Ordering guarantees & what breaks them',2),
+  u('Backpressure & queue depth',2),
+  u('Build an event-driven feature end-to-end',6),
+  u('Kafka log/partition model',4,T.DEEP),
+  u('Kafka consumer groups & rebalancing',4,T.DEEP),
+  u('Kafka producer acks, idempotence, ISR, retention',4,T.DEEP),
+  u('Schema registry / Avro',3,T.DEEP)]},
+{id:'conc',name:'Phase 10 — Concurrency',base:6,ms:'Can explain 10k simultaneous updates',units:[
+  u('Threads vs processes',3),
+  u('Async I/O & the event loop',4),
+  u('Race conditions & memory visibility',3),
+  u('Mutexes, locks, atomics',3),
+  u('Deadlocks — detection & prevention',2),
+  u('Thread pools & bounded concurrency',3),
+  u('Connection pools under load',2),
+  u('Race detector lab — break it, then fix it',4,T.CORE,true)]},
+{id:'sd',name:'Phase 11 — System Design Fundamentals',base:6,ms:'Two timed designs defended out loud',units:[
+  u('Latency vs throughput vs concurrency',2),
+  u('Capacity estimation — do the numbers',3),
+  u('Load balancing (L4/L7, sticky vs not)',3),
+  u('Horizontal vs vertical scaling',2),
+  u('Caching layer decisions',2),
+  u('Replication, sharding & partition keys',4),
+  u('CDNs & edge',2),
+  u('Queues in the architecture',2),
+  u('Rate limiting at scale',2),
+  u('Consistency models',3),
+  u('SLOs & error budgets',2),
+  u('2 timed system-design mocks',4,T.CORE,true)]},
+{id:'ds',name:'Phase 12 — Distributed Systems',base:6,ms:'Every concept mapped to your own project',units:[
+  u('CAP theorem',3),
+  u('Eventual consistency',2),
+  u('Consensus basics (Raft/Paxos intuition)',4),
+  u('Idempotency in distributed contexts',2),
+  u('Timeouts & retries — retry storms',2),
+  u('Circuit breakers & bulkheads',3),
+  u('Backpressure',2),
+  u('Distributed locks & lease expiry',3),
+  u('Leader election',3),
+  u('Saga pattern',4),
+  u('2-Phase Commit',3),
+  u('Map every concept onto your own project',4,T.CORE,true)]},
+{id:'prod',name:'Phase 13 — Production Engineering',base:6,ms:'Deployed, monitored, observable',units:[
+  u('Docker deep — layers, multi-stage, compose',4),
+  u('CI/CD pipelines',4),
+  u('Cloud basics + one provider deep',8),
+  u('Secrets management in prod',2),
+  u('Health checks — liveness vs readiness vs startup',2),
+  u('Graceful shutdown & connection draining',3),
+  u('Structured logging & correlation IDs',3),
+  u('Metrics — RED/USE, Prometheus + Grafana',4),
+  u('Distributed tracing with OpenTelemetry',4),
+  u('Alerting & SLO burn-rate alerts',3),
+  u('Blue/green, rolling & canary deploys',3),
+  u('Feature flags',2,T.EXTRA)]},
+{id:'chaos',name:'Phase 14 — Break Your Own System',base:6,ms:'Incident review written & published',units:[
+  u('Docker Compose failure scripts',3),
+  u('Kill the database',2),
+  u('Kill Redis',2),
+  u('Delay & partition the queue',2),
+  u('Duplicate messages',2),
+  u('Force an API timeout',2),
+  u('Exhaust the connection pool',2),
+  u('10x traffic load test & bottleneck analysis',4),
+  u('Fixes: timeout, backoff, breaker, bulkhead, fallback, DLQ',6),
+  u('Rolling deploy under load',3,T.CORE,true),
+  u('Write the incident review (timeline, impact, root cause)',3,T.CORE,true)]},
+{id:'proj2',name:'Phase 15 — ONE Serious Project',base:16,ms:'Serious project shipped with docs + demo',units:[
+  u('Scope cut + architecture decision records',6),
+  u('Schema design & migrations',8),
+  u('Core domain APIs',16),
+  u('Auth + RBAC',8),
+  u('Idempotency on the critical write path',6),
+  u('Background worker: retries, backoff, DLQ',8),
+  u('Caching + explicit invalidation strategy',6),
+  u('Rate limiting + pagination',4),
+  u('Tests — unit + integration in CI',8),
+  u('Docker + CI/CD for this project',6),
+  u('Observability — logs, metrics, traces',8),
+  u('Load test + chaos test results',6),
+  u('README, ADRs, architecture diagram',6),
+  u('Deploy a live demo',4,T.CORE,true)]},
+{id:'inter',name:'Phase 16 — Interview Prep & Portfolio',base:4,ms:'Ready: portfolio, resume, mock loops',units:[
+  u('Why Postgres / Redis / queue — trade-off answers',3),
+  u('Failure-mode Q&A (queue down, dup payments, 100K rps, DB bottleneck)',4),
+  u('Portfolio polish — README, diagram, live link',4),
+  u('Resume — impact bullets, quantified',3),
+  u('2 system-design mocks (45 min, whiteboard + timer)',4),
+  u('2 timed coding mocks',4),
+  u('Defend every decision in your project',3),
+  u('5 behavioural stories (STAR)',2),
+  u('The 2-minute project pitch',1)]},
+{id:'dsa',name:'EXTRA — DSA & Problem Solving',base:12,ms:'DSA target achieved',units:[
+  u('Arrays, strings, hashing',6,T.EXTRA),
+  u('Two pointers, sliding window, sorting',6,T.EXTRA),
+  u('Linked lists, stacks, queues',5,T.EXTRA),
+  u('Trees, BSTs, BFS/DFS',8,T.EXTRA),
+  u('Graphs, topological sort, shortest paths',8,T.EXTRA),
+  u('Recursion & backtracking',5,T.EXTRA),
+  u('DP patterns',10,T.EXTRA),
+  u('Greedy & binary search',6,T.EXTRA),
+  u('Advanced heap & two-pointer',6,T.EXTRA),
+  u('Timed mock sets (2 per week)',10,T.EXTRA)]},
+{id:'k8s',name:'EXTRA — Kubernetes',base:6,ms:'Service deployed on a cluster',units:[
+  u('Pods, deployments, services',5,T.EXTRA),
+  u('ConfigMaps, Secrets, probes',4,T.EXTRA),
+  u('Resources, HPA, autoscaling',4,T.EXTRA),
+  u('Ingress & networking',4,T.EXTRA),
+  u('Helm basics',3,T.EXTRA)]},
+{id:'iac',name:'EXTRA — Terraform / IaC',base:4,ms:'Infra defined as code',units:[
+  u('Providers, resources, state',4,T.EXTRA),
+  u('Modules & environment separation',4,T.EXTRA),
+  u('Plan/apply, drift detection, CI for IaC',4,T.EXTRA)]}
+];
+
+/* ================= CONFIG ================= */
+const FOCUS={
+ balanced:{},
+ data:{sql:1.5,db:1.4,queue:1.2,proj2:1.1,prod:.85,sd:.85,ds:.8,http:.9,lang:.95,sec:.85,chaos:.8,proj1:1,api:1,redis:.9,conc:.85,inter:1.05,setup:1},
+ infra:{prod:1.6,chaos:1.5,k8s:1.6,iac:1.6,sd:1.2,ds:1.15,queue:1.1,proj2:1.15,proj1:.85,sql:.85,db:.85,api:.8,redis:.85,lang:.8,http:.85,sec:.8,conc:.8,inter:1.1,setup:.9},
+ interview:{inter:2.4,sd:1.5,ds:1.35,proj1:1.25,proj2:1.15,conc:1.2,dsa:1.5,prod:.8,chaos:.8,sql:1.05,db:1.05,api:1.15,queue:1.05,redis:1,http:.95,lang:.9,sec:.95,setup:.9}
+};
+const LEVEL_TIERS={fresher:{1:1,2:1,3:1,4:0},early:{1:1,2:1,3:1,4:0},working:{1:1,2:0,3:1,4:0},mid:{1:1,2:0,3:1,4:1},senior:{1:1,2:0,3:1,4:1}};
+const LEVEL_MULT={fresher:1.25,early:1.15,working:1,mid:.9,senior:.8};
+const EXTRA_IDS={none:[],dsa:['dsa'],k8s:['k8s'],iac:['iac'],all:['dsa','k8s','iac']};
+
+/* ================= ENGINE ================= */
+const sum=(a,f)=>a.reduce((s,x)=>s+(f?f(x):x),0);
+function eligible(unit,cfg){
+  const L=LEVEL_TIERS[cfg.level];
+  if(unit.tier===T.NEW && !L[2]) return false;
+  if(unit.tier===T.DEEP && !L[4]) return false;
+  if(unit.tier===T.EXTRA && cfg.extras==='none') return false;
+  return true;
+}
+function buildPlan(cfg){
+  const hours=parseFloat(cfg.hours), days=parseInt(cfg.days,10);
+  const bufPerWeek=parseInt(cfg.buffer,10);
+  const contentPerWeek=7-bufPerWeek;
+  const contentSlots=Math.floor(days/7)*contentPerWeek+Math.min(days%7,contentPerWeek);
+  const budget=contentSlots*hours;
+  const mult=LEVEL_MULT[cfg.level];
+  const focus=FOCUS[cfg.focus]||{};
+  const ex=EXTRA_IDS[cfg.extras]||[];
+
+  const phases=DATA
+    .filter(p=>p.id!=='dsa'||ex.includes('dsa'))
+    .filter(p=>p.id!=='k8s'||ex.includes('k8s'))
+    .filter(p=>p.id!=='iac'||ex.includes('iac'))
+    .map(p=>{
+      const w=(focus[p.id]||1);
+      const units=p.units.filter(u=>eligible(u,cfg)).map(u=>({...u,h:Math.max(1,Math.round(u.h*mult*w))}));
+      return {...p,units,w,coreH:sum(units.filter(u=>u.tier===T.CORE),x=>x.h),allH:sum(units,x=>x.h),list:[],allow:0};
+    });
+
+  const coreH=sum(phases,p=>p.coreH), totalH=sum(phases,p=>p.allH);
+  /* calendar days needed, including buffer days */
+  const calDays=(nContent)=>{const c=contentPerWeek;const w=Math.floor(nContent/c);const r=nContent%c;
+    return w*7+(r>0?r+(7-c):0);};
+  const mustH=sum(phases,p=>sum(p.units.filter(u=>u.tier===T.CORE&&!u.flex),x=>x.h));
+  const minDays=calDays(Math.ceil(mustH/hours)), fullDays=calDays(Math.ceil(totalH/hours));
+  const minContentDays=Math.ceil(mustH/hours), fullContentDays=Math.ceil(totalH/hours);
+
+  /* Greedy in roadmap order. Each phase may consume up to (its nominal need x focus weight). */
+  let remaining=budget; const deferred=[];
+  phases.forEach(p=>{
+    p.allow=Math.min(p.allH*p.w, Math.max(p.coreH, p.allH*p.w));
+    let rem=p.allow;
+    const take=(list)=>{
+      list.forEach(u=>{
+        if(u.h<=rem&&remaining>=u.h){p.list.push({...u,phase:p});rem-=u.h;remaining-=u.h;}
+        else deferred.push({...u,phase:p});
+      });
+    };
+    take(p.units.filter(u=>u.tier===T.CORE&&!u.flex));
+    take(p.units.filter(u=>u.tier===T.CORE&&u.flex));
+    take(p.units.filter(u=>u.tier===T.NEW));
+    take(p.units.filter(u=>u.tier===T.EXTRA));
+    if(LEVEL_TIERS[cfg.level][4]) take(p.units.filter(u=>u.tier===T.DEEP));
+  });
+
+  /* Second pass — leftover budget pulls deferred topics back in (roadmap order). */
+  const still=[];
+  deferred.forEach(d=>{ if(d.h<=remaining){d.phase.list.push(d);remaining-=d.h;} else still.push(d); });
+
+  /* Schedule into calendar days (buffer days are real calendar days). */
+  const schedule=[]; let cur=null;
+  for(let i=1;i<=days;i++){
+    const dayInWeek=(i-1)%7;
+    const isContent=dayInWeek<contentPerWeek;
+    cur={i,content:isContent,items:[],used:0};
+    schedule.push(cur);
+  }
+  const contentDays=schedule.filter(s=>s.content);
+  let ci=0;
+  const flat=[];
+  phases.forEach(p=>p.list.forEach(c=>flat.push(c)));
+  flat.forEach(c=>{
+    let rem=c.h;
+    while(rem>0 && ci<contentDays.length){
+      const d=contentDays[ci];
+      const left=hours-d.used;
+      if(left<=0.0001){ci++;continue;}
+      const take=Math.min(left,rem);
+      d.items.push({...c,part:take,total:c.h});
+      d.used+=take; rem-=take;
+      if(d.used>=hours-0.0001) ci++;
+    }
+  });
+  const lastUsed=contentDays.filter(d=>d.items.length).length;
+  const usedContentDays=lastUsed;
+  const spareDays=contentDays.length-usedContentDays;
+
+  const chosenH=sum(flat,u=>u.h);
+  const coverage=totalH?chosenH/totalH:0;
+  const coreGot=sum(phases,p=>sum(p.list.filter(x=>x.tier===T.CORE),x=>x.h));
+  const coreCoverage=coreH?coreGot/coreH:0;
+
+  /* milestone day index for each phase */
+  phases.forEach(p=>{
+    let idx=-1;
+    p.list.forEach(c=>{
+      contentDays.forEach((d,di)=>{ if(d.items.some(it=>it.t===c.t&&it.phase.id===p.id)&&idx<0) idx=di; });
+    });
+    p.milestoneDay=idx>=0?contentDays[idx].i:null;
+  });
+
+  return {cfg,hours,days,budget,contentSlots,contentPerWeek,bufPerWeek,phases,schedule,
+    coreH,totalH,chosenH,coverage,coreCoverage,minDays,fullDays,minContentDays,fullContentDays,
+    deferred:still,usedContentDays,spareDays,remaining,mustH,feas:mustH<=budget};
+}
+
+/* ================= STUDY NOTES MAP =================
+   Maps each roadmap phase to the notes in the node-interview-prep repo (13 parts, Node.js + MySQL).
+   s: full | part | zero.   links: [file, label, section-title regex or null]                    */
+const NOTES={
+ setup:{s:'part',have:'Task API Stage 1 covers project setup and the Express skeleton.',gap:'No Git/GitHub workflow notes; no editor, linter or debugger setup.',
+  links:[['12_Project_Task_API.md','Task API Stage 1','^4\\. Stage 1']]},
+ lang:{s:'part',have:'JavaScript for backend: scope, closures, this, prototypes, promises, async/await, event loop.',gap:'JavaScript only. No OOP/generics notes, no CLI build exercise, no debugger skills.',
+  links:[['01_Week1_JavaScript.md','Week 1 JavaScript',null],['09_Question_Bank_A.md','Q-JS questions',null]]},
+ http:{s:'part',have:'HTTP lifecycle, methods, headers, status codes, cookies; browser vs Node; DNS/TCP/TLS touched in passing.',gap:'No Linux/CLI day (ps, ss, lsof, journalctl, strace), no TCP handshake or TIME_WAIT deep dive, no Docker networking.',
+  links:[['03_Week3_Express_REST.md','W3 Day 1 HTTP','^Day 1\\b'],['02_Week2_Node_Internals.md','W2 Day 1 runtime','^Day 1\\b']]},
+ sec:{s:'full',have:'Password hashing, JWT, refresh-token rotation, sessions vs JWT, RBAC, SQLi/XSS/CSRF/IDOR, secrets, rate limiting.',gap:'OAuth 2.0/OIDC/SSO, MFA and SSRF are only mentioned briefly.',
+  links:[['05_Week5_Data_Auth_Security.md','W5 Day 3 auth','^Day 3\\b'],['05_Week5_Data_Auth_Security.md','W5 Day 4 tokens/RBAC','^Day 4\\b'],['05_Week5_Data_Auth_Security.md','W5 Day 5 attacks','^Day 5\\b'],['10_Question_Bank_B.md','Q-SEC questions',null]]},
+ sql:{s:'full',have:'MySQL 8: joins, grouping, subqueries, window functions and CTEs, transactions, ACID, isolation levels, locks, deadlocks, EXPLAIN. Checked on a real MySQL 8.',gap:'MySQL instead of PostgreSQL (no pg_locks or Postgres-specific EXPLAIN ANALYZE).',
+  links:[['04_Week4_MySQL.md','W4 Day 1 fundamentals','^Day 1\\b'],['04_Week4_MySQL.md','W4 Day 2 joins','^Day 2\\b'],['04_Week4_MySQL.md','W4 Day 4 transactions','^Day 4\\b'],['04_Week4_MySQL.md','W4 Day 5 locks','^Day 5\\b'],['09_Question_Bank_A.md','Q-SQL questions',null],['11_Coding_Exercises.md','EX-SQL exercises',null]]},
+ db:{s:'part',have:'Indexes and composite indexes (W4 D3), connection pooling (W4 D5), EXPLAIN and pagination (W4 D6), replication and scaling (W7 D1).',gap:'No dedicated day for B-tree structure, buffer pool, WAL or MVCC; they appear only inside other days.',
+  links:[['04_Week4_MySQL.md','W4 Day 3 indexes','^Day 3\\b'],['04_Week4_MySQL.md','W4 Day 6 EXPLAIN','^Day 6\\b'],['07_Week7_System_Design.md','W7 Day 1 scaling','^Day 1\\b']]},
+ api:{s:'full',have:'REST design, validation, error contracts, pagination/filter/sort, versioning, OpenAPI, idempotency keys.',gap:'No GraphQL/gRPC; no consumer-driven contract tests.',
+  links:[['03_Week3_Express_REST.md','W3 Day 2 REST','^Day 2\\b'],['03_Week3_Express_REST.md','W3 Day 5 pagination','^Day 5\\b'],['03_Week3_Express_REST.md','W3 Day 6 OpenAPI','^Day 6\\b'],['06_Week6_Testing_Production.md','W6 Day 3 idempotency','^Day 3\\b']]},
+ proj1:{s:'part',have:'URL shortener is a full design in W7 Day 3; the built project is the Task API (Express 5 + MySQL).',gap:'The URL shortener itself is not built; the Task API uses MySQL, not PostgreSQL.',
+  links:[['07_Week7_System_Design.md','W7 Day 3 URL shortener','^Day 3\\b'],['12_Project_Task_API.md','Task API project',null]]},
+ redis:{s:'full',have:'Cache-aside, TTL, invalidation, stampede and single-flight, fail-open, Redis in the project.',gap:'Redis Cluster and persistence internals not covered.',
+  links:[['06_Week6_Testing_Production.md','W6 Day 4 Redis','^Day 4\\b'],['12_Project_Task_API.md','Extension A Redis','^11\\. Extension A']]},
+ queue:{s:'part',have:'BullMQ jobs, retries with backoff, dead-letter queues, idempotent consumers, queue vs pub/sub vs streaming at interview depth.',gap:'Kafka only at interview level; no hands-on SQS, RabbitMQ or Kafka.',
+  links:[['06_Week6_Testing_Production.md','W6 Day 5 queues','^Day 5\\b'],['07_Week7_System_Design.md','W7 Day 5 async','^Day 5\\b'],['12_Project_Task_API.md','Extension B BullMQ','^12\\. Extension B']]},
+ conc:{s:'part',have:'Event loop, microtasks, thread pool, worker threads, race conditions in async code.',gap:'Node-specific only: no threads/mutex/atomics lab and no race-detector exercise.',
+  links:[['01_Week1_JavaScript.md','W1 Day 5 event loop','^Day 5\\b'],['02_Week2_Node_Internals.md','W2 Day 2 thread pool','^Day 2\\b'],['02_Week2_Node_Internals.md','W2 Day 3 workers','^Day 3\\b']]},
+ sd:{s:'full',have:'Monolith vs microservices, scaling, rate limiter, notification system, URL shortener, file upload, payments, queues, Docker.',gap:'Capacity estimation appears inside each design, not as its own drill.',
+  links:[['07_Week7_System_Design.md','W7 System design',null],['10_Question_Bank_B.md','Q-SD questions',null]]},
+ ds:{s:'part',have:'Retries, timeouts, idempotency, circuit breakers, saga and payment failure recovery (W6 D3, W7 D4).',gap:'CAP, consensus, leader election and 2PC are thin; no map-each-concept-to-your-project exercise.',
+  links:[['06_Week6_Testing_Production.md','W6 Day 3 retries','^Day 3\\b'],['07_Week7_System_Design.md','W7 Day 4 payments','^Day 4\\b']]},
+ prod:{s:'part',have:'Structured logging, correlation IDs, health checks, graceful shutdown, Docker, deployment basics, monitoring.',gap:'No hands-on CI/CD, cloud (IAM/VPC/managed DB), OpenTelemetry, Prometheus/Grafana setup or alerting.',
+  links:[['06_Week6_Testing_Production.md','W6 Day 2 logging','^Day 2\\b'],['06_Week6_Testing_Production.md','W6 Day 5 shutdown','^Day 5\\b'],['07_Week7_System_Design.md','W7 Day 6 Docker','^Day 6\\b'],['12_Project_Task_API.md','Extension C Docker','^13\\. Extension C']]},
+ chaos:{s:'part',have:'Production failure diagnosis playbook (W6 D6) and incident walkthroughs (W8 D4).',gap:'No scripted Docker Compose failure lab (kill DB/Redis, duplicate messages, pool exhaustion) and no incident-review exercise.',
+  links:[['06_Week6_Testing_Production.md','W6 Day 6 diagnosis','^Day 6\\b'],['08_Week8_Revision_Mocks_Checklist.md','W8 Day 53 incidents','^Day 53\\b']]},
+ proj2:{s:'zero',have:'Nothing yet. The Task API is a warm-up project, closer to the roadmap warning against todo-style apps.',gap:'No serious project (payments or orders with idempotency, a DLQ worker, load and chaos tests, ADRs).',
+  links:[['12_Project_Task_API.md','Task API (warm-up)',null]]},
+ inter:{s:'full',have:'Four mock interview sets, project-explanation answers, 310 questions, readiness checklist.',gap:'No resume or portfolio guidance.',
+  links:[['08_Week8_Revision_Mocks_Checklist.md','W8 Day 55 mocks','^Day 55\\b'],['09_Question_Bank_A.md','Question bank A',null],['10_Question_Bank_B.md','Question bank B',null]]},
+ dsa:{s:'zero',have:'Nothing.',gap:'No DSA notes.',links:[]},
+ k8s:{s:'zero',have:'Nothing.',gap:'No Kubernetes notes.',links:[]},
+ iac:{s:'zero',have:'Nothing.',gap:'No Terraform notes.',links:[]}
+};
+const NOTES_BASE=location.protocol==='file:'?'https://sonuengineer.github.io/node-interview-prep/':'';
+let PARTS=[];
+const slugH=t=>t.toLowerCase().replace(/[^a-z0-9\s-]/g,'').trim().replace(/\s+/g,'-');
+function noteHref(file,re){
+  let anchor='';
+  if(re){const p=PARTS.find(x=>x.file===file);const sec=p&&p.sections.find(t=>new RegExp(re).test(t));if(sec)anchor='|'+slugH(sec);}
+  return NOTES_BASE+'index.html#'+encodeURIComponent(file)+anchor;
+}
+const stLabel={full:'Notes: full',part:'Notes: partial',zero:'Notes: missing'};
+function notesBadge(id){const n=NOTES[id];return n?`<span class="st ${n.s}">${stLabel[n.s]}</span>`:'';}
+function noteLinks(id){const n=NOTES[id];if(!n||!n.links.length)return '';
+  return '<span class="nls">'+n.links.map(l=>`<a class="nl" target="_blank" rel="noopener" href="${noteHref(l[0],l[2])}">${l[1]}</a>`).join('')+'</span>';}
+function renderNotes(p){
+  const c={full:0,part:0,zero:0};
+  const rows=p.phases.map(ph=>{const n=NOTES[ph.id];if(!n)return '';c[n.s]++;
+    return `<tr><td>${ph.name}</td><td>${notesBadge(ph.id)}</td><td>${n.have}${noteLinks(ph.id)}</td><td>${n.gap||'-'}</td></tr>`;}).join('');
+  $('#notes').innerHTML=`<p class="note">${c.full} phases fully covered, ${c.part} partly, ${c.zero} not covered by the notes in this repo (Node.js + MySQL stack).</p><table><tr><th>Phase</th><th>Status</th><th>What the notes have</th><th>Gap</th></tr>${rows}</table>`;
+}
+
+/* ================= MARKDOWN ================= */
+function md(cfg){
+  const p=buildPlan(cfg);
+  const L=[];
+  L.push('# Personal Backend Roadmap');
+  L.push('');
+  L.push(`**${cfg.hours} h/day × ${cfg.days} days** = ${p.budget} usable h (${p.contentSlots} content days after ${p.bufPerWeek}/wk buffer) · level: ${cfg.level} · lang: ${cfg.lang} · role: ${cfg.role} · focus: ${cfg.focus}`);
+  L.push('');
+  L.push(`- Coverage: **${Math.round(p.coverage*100)}%** of syllabus (${p.chosenH} h of ${p.totalH} h) · core covered **${Math.round(p.coreCoverage*100)}%**`);
+  L.push(`- Minimum days for core: **${p.minDays}** calendar (${p.minContentDays} content days) · for the full syllabus: **${p.fullDays}** calendar (${p.fullContentDays} content days) — at ${cfg.hours} h/day`);
+  if(p.spareDays>0) L.push(`- Plan finishes in **${p.usedContentDays} content days** — **${p.spareDays} spare days** left in your timeline.`);
+  L.push('');
+  L.push('| Day | Phase | Focus | Hours |');
+  L.push('|---:|---|---|---:|');
+  p.schedule.forEach(s=>{
+    if(!s.content){L.push(`| ${s.i} | — | 🧘 Buffer / review day | — |`);return;}
+    if(!s.items.length){L.push(`| ${s.i} | — | 🟢 Spare — use for deferred topics or a 2nd project | — |`);return;}
+    const ph=s.items[0].phase.name;
+    const fo=s.items.map(it=>`${it.t}${it.part<it.total?` (${it.part}/${it.total}h)`:''}`).join('; ');
+    L.push(`| ${s.i} | ${ph} | ${fo} | ${s.used.toFixed(1)} h |`);
+  });
+  L.push('');
+  L.push('## Phase coverage');
+  L.push('');
+  L.push('| Phase | Planned | Full | Status |');
+  L.push('|---|---:|---:|---|');
+  p.phases.forEach(ph=>{
+    const done=sum(ph.list,x=>x.h), pct=ph.allH?Math.round(done/ph.allH*100):0;
+    const st=pct>=99?'Full':(done>0?'Partial':'Not started');
+    L.push(`| ${ph.name} | ${done} h | ${ph.allH} h | ${st} (${pct}%) |`);
+  });
+  if(p.deferred.length){
+    L.push('');L.push('## Deferred / not reached');L.push('');
+    const byPhase={};
+    p.deferred.forEach(d=>{(byPhase[d.phase.name]=byPhase[d.phase.name]||[]).push(d);});
+    Object.entries(byPhase).forEach(([ph,list])=>{
+      L.push(`**${ph}** (${sum(list,x=>x.h)} h)`);
+      list.forEach(d=>L.push(`- ${d.t} — ${d.h} h`));
+      L.push('');
+    });
+  }
+  L.push('');L.push('## Study notes coverage');L.push('');
+  L.push('| Phase | Notes | Gap |');L.push('|---|---|---|');
+  p.phases.forEach(ph=>{const n=NOTES[ph.id];if(n)L.push(`| ${ph.name} | ${stLabel[n.s]} | ${n.gap||'-'} |`);});
+  return L.join('\n');
+}
+
+/* ================= RENDER ================= */
+function render(cfg){
+  const p=buildPlan(cfg);
+  $('#status').textContent=`${p.usedContentDays} content days used · ${Math.round(p.coverage*100)}% covered`;
+
+  const coveragePct=Math.round(p.coverage*100);
+  $('#cards').innerHTML=[
+    ['Usable budget',p.budget+' h',`${p.contentSlots} content days (${p.bufPerWeek} buffer/wk)`],
+    ['Scheduled',p.chosenH+' h',`${p.usedContentDays} content days used`],
+    ['Syllabus coverage',coveragePct+'%',`${p.chosenH} of ${p.totalH} h`],
+    ['Core covered',Math.round(p.coreCoverage*100)+'%',`core = ${p.coreH} h`],
+    ['Must-have needs',p.minDays+' days',`${p.mustH} h at ${cfg.hours} h/day`],
+    ['Full syllabus needs',p.fullDays+' days',`${p.fullContentDays} content days @ ${cfg.hours} h`],
+    ['Deferred',p.deferred.length+' topics',p.deferred.length?sum(p.deferred,d=>d.h)+' h not reached':'nothing dropped']
+  ].map(c=>`<div class="card"><div class="k">${c[0]}</div><div class="v">${c[1]}</div><div class="n">${c[2]}</div></div>`).join('');
+
+  const A=[];
+  const needPerDay=Math.ceil(p.mustH/Math.max(1,p.contentSlots)*10)/10;
+  if(!p.feas){
+    A.push(`<div class="alert bad"><b>Budget short.</b> Must-have topics need <b>${p.mustH} h</b>; you have <b>${p.budget} h</b>.
+    Options: study about <b>${needPerDay} h/day</b> for the same ${cfg.days} days, or keep ${cfg.hours} h/day for about <b>${p.minDays} days</b>
+    (the full syllabus needs ${p.fullDays} days), or cut scope with a focus preset.</div>`);
+  }else{
+    A.push(`<div class="alert ok"><b>Budget works.</b> Must-have topics (${p.mustH} h) fit in ${p.budget} h.
+    ${coveragePct>=99?'Full syllabus covered - start building, not reading.':'Remaining hours went to the other topics, in roadmap order.'}</div>`);
+  }
+  if(p.spareDays>0)
+    A.push(`<div class="alert ok"><b>${p.spareDays} spare content days</b> at the end of your timeline.
+    Use them for the deferred topics below, or build a second serious project.</div>`);
+  const serious=p.phases.find(x=>x.id==='proj2');
+  if(serious){
+    const sh=sum(serious.list,u=>u.h);
+    if(sh===0) A.push(`<div class="alert warn"><b>Serious project not reached.</b> The URL shortener is your fallback project — it still counts as a portfolio piece.</div>`);
+    else if(sh<50) A.push(`<div class="alert warn"><b>Serious project under-funded:</b> only ${sh} h allocated (needs 60–90 h). Raise hours/day or accept a thinner scope.</div>`);
+  }
+  $('#alerts').innerHTML=A.join('');
+
+  let html='<tr><th>Day</th><th>Phase</th><th>Focus</th><th style="text-align:right">Hours</th></tr>';
+  const seenLinks=new Set();
+  p.schedule.forEach(s=>{
+    if(!s.content){html+=`<tr class="buffer"><td class="d">Day ${s.i}</td><td colspan="2">🧘 Buffer / review day — catch up, revise, no new topic</td><td class="h">—</td></tr>`;return;}
+    if(!s.items.length){html+=`<tr class="spare"><td class="d">Day ${s.i}</td><td colspan="2">🟢 Spare day — deferred topics / 2nd project / revision</td><td class="h">—</td></tr>`;return;}
+    const groups={};
+    s.items.forEach(it=>{(groups[it.phase.name]=groups[it.phase.name]||[]).push(it);});
+    const phCell=Object.entries(groups).map(([ph,list])=>{
+      const pid=list[0].phase.id, first=!seenLinks.has(pid); seenLinks.add(pid);
+      const ms=first&&list[0].phase.ms?`<span class="ms">Milestone: ${list[0].phase.ms}</span>`:'';
+      return `<div class="phg"><b>${ph}</b>${notesBadge(pid)}${first?noteLinks(pid):''}${ms}</div>`;
+    }).join('');
+    const topics=s.items.map(it=>`<span class="u t${it.tier}">${it.t}${it.part<it.total?` (${it.part}/${it.total}h)`:''}</span>`).join('');
+    html+=`<tr><td class="d">Day ${s.i}</td><td class="p">${phCell}</td><td>${topics}</td><td class="h">${s.used.toFixed(1)} h</td></tr>`;
+  });
+  $('#plan').innerHTML=html+'</table>';
+
+  const byPhase={};
+  p.deferred.forEach(d=>{(byPhase[d.phase.name]=byPhase[d.phase.name]||[]).push(d);});
+  const keys=Object.keys(byPhase);
+  $('#deferred').innerHTML=keys.length
+   ? `<details open><summary>${p.deferred.length} topics not reached (${sum(p.deferred,d=>d.h)} h)</summary><div style="margin-top:10px">
+      ${keys.map(k=>`<div style="margin-bottom:10px"><b style="font-size:12.5px">${k}</b><br>${byPhase[k].map(d=>`<span class="pill">${d.t} <b>${d.h}h</b></span>`).join('')}</div>`).join('')}
+      </div><p class="note">Drop these or raise hours/day — they get pulled back in automatically when the budget allows.</p></details>`
+   : `<details><summary>Nothing deferred — the full syllabus fits</summary><p class="note" style="margin-top:8px">Everything fit inside your budget. Consider the interview focus preset to go deeper.</p></details>`;
+
+  $('#coverage').innerHTML='<table><tr><th>Phase</th><th style="text-align:right">Planned</th><th style="text-align:right">Full</th><th style="text-align:right">%</th><th>Status</th></tr>'+
+    p.phases.map(ph=>{const all=ph.allH,done=sum(ph.list,u=>u.h);
+      const pct=all?Math.round(done/all*100):0;
+      const cls=pct>=99?'full':(done>0?'part':'zero');
+      const label=pct>=99?'Full':(done>0?'Partial':'Not started');
+      const color=pct>=99?'var(--accent2)':pct>=60?'var(--warn)':'var(--bad)';
+      return `<tr><td>${ph.name}</td><td class="h">${done}h</td><td class="h">${all}h</td>
+        <td class="h" style="color:${color};font-weight:700">${pct}%</td><td><span class="st ${cls}">${label}</span></td></tr>`;}).join('')+'</table>';
+
+  renderNotes(p);
+  $('#logic').innerHTML=`<details open><summary>How your plan was computed</summary>
+  <div class="note" style="margin-top:10px"><ol style="margin:0;padding-left:20px">
+   <li><b>Calendar model</b> — ${cfg.days} calendar days ÷ 7 = weeks; ${p.bufPerWeek} buffer day(s) per week ⇒ <b>${p.contentSlots} content days</b>.</li>
+   <li><b>Budget</b> = ${p.contentSlots} content days × ${cfg.hours} h = <b>${p.budget} h</b>.</li>
+   <li><b>Level multiplier</b> ×${LEVEL_MULT[cfg.level]} — ${cfg.level} needs more hours on the same material.</li>
+   <li><b>Focus weights</b> (${cfg.focus}) scale how much of the budget each phase may consume.</li>
+   <li><b>Inside a phase</b>: mandatory core → trimmable core → foundations drill → extras → deep dives.</li>
+   <li><b>Greedy in roadmap order</b> — you cannot learn Kafka before SQL, so the budget flows front-to-back. Phases after the cut stay empty by design.</li>
+   <li><b>Second pass</b> — leftover budget pulls deferred topics back in, in roadmap order.</li>
+   <li><b>Scheduling</b> — topics are laid into content days of ${cfg.hours} h; a topic longer than a day is split and marked <i>(x/y h)</i>.</li>
+   <li>${p.feas?'<b>Feasible.</b>':'<b>Not feasible</b> with this budget - the must-have topics need ' + p.minDays + ' days.'} Must-have = core topics that are not trimmable. Spare days at the end: <b>${p.spareDays}</b>.</li>
+  </ol></div></details>`;
+  return p;
+}
+
+/* ================= WIRING ================= */
+function cfgNow(){return {hours:$('#hours').value,days:$('#days').value,level:$('#level').value,lang:$('#lang').value,
+  role:$('#role').value,focus:$('#focus').value,buffer:$('#buffer').value,extras:$('#extras').value};}
+function go(){render(cfgNow());}
+document.querySelectorAll('select').forEach(s=>s.addEventListener('change',go));
+$('#gen').addEventListener('click',go);
+$('#copy').addEventListener('click',()=>{const t=md(cfgNow());
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(()=>$('#status').textContent='Markdown copied ✓').catch(()=>fallbackCopy(t));}
+  else fallbackCopy(t);});
+function fallbackCopy(t){const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();$('#status').textContent='Markdown copied ✓';}
+$('#dl').addEventListener('click',()=>{const b=new Blob([md(cfgNow())],{type:'text/markdown'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='my-backend-roadmap.md';a.click();URL.revokeObjectURL(a.href);});
+$('#print').addEventListener('click',()=>window.print());
+$('#dash-link').href=NOTES_BASE+'index.html';
+fetch(NOTES_BASE+'parts.json').then(r=>r.json()).then(p=>{PARTS=p;go();}).catch(()=>{});
+go();
+</script>
+</body>
+</html>

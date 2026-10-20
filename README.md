@@ -11,6 +11,8 @@ professional English.
 
 GitHub Pages dashboard: https://sonuengineer.github.io/node-interview-prep/
 
+Roadmap planner (hours/day and timeline to a day-wise plan, linked to these notes): https://sonuengineer.github.io/node-interview-prep/roadmap.html
+
 It has a part and section sidebar, search across all parts, dark/light theme, and a
 "Mark done" button per section. Progress is stored in your browser only.
 
