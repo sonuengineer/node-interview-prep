@@ -1077,6 +1077,7 @@ const server = app.listen(config.port, () => {
 });
 
 // Graceful shutdown (full treatment in Week 6): stop accepting new connections, finish in-flight ones.
+// Simplified: behind a load balancer you must first fail readiness and wait a drain delay before server.close() (Week 6 Day 5).
 function shutdown(signal) {
   console.log(`${signal} received, closing server`);
   server.close(() => process.exit(0));

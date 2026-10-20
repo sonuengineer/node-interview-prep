@@ -2,7 +2,9 @@
 
 A self-contained study document for a frontend developer moving into Node.js backend roles:
 a 56-day plan, detailed notes for 8 weeks, a 310-question bank, 86 coding exercises, and an
-end-to-end Task Management API project (Express 5 + MySQL 8).
+end-to-end Task Management API project (Express 5 + MySQL 8). A supplement track (parts 13-20) adds
+Linux/networking, database internals, observability, a chaos lab, a payments capstone, a URL shortener,
+concurrency/distributed systems, and career material.
 
 Notes are written in simple Hinglish with English technical terms. Interview answers are in
 professional English.
@@ -26,6 +28,14 @@ It has a part and section sidebar, search across all parts, dark/light theme, an
 | 09 / 10 Question_Bank_A / B | 310 interview questions in 10 categories |
 | 11_Coding_Exercises.md | 86 exercises (problems first, solutions after) |
 | 12_Project_Task_API.md | The end-to-end project, stage by stage |
+| 13 Linux_Networking_Foundations | Linux CLI, TCP/TLS/DNS, Docker networking labs |
+| 14 Database_Internals | B+tree, buffer pool, WAL, MVCC, replication, pool sizing (run on MySQL 8.4) |
+| 15 Observability_Cloud_CICD | Prometheus, Grafana, OpenTelemetry, alerting, GitHub Actions, AWS concepts |
+| 16 Chaos_Lab | Eight failure experiments on the Task API with before/after numbers |
+| 17 Capstone_Payments_Project | Payments and orders backend: idempotency, outbox, worker, ledger |
+| 18 URL_Shortener_Build | URL shortener built end to end with tests and Docker |
+| 19 Concurrency_Distributed_Systems | Race-condition labs, Raft, locks, saga, capacity estimation |
+| 20 Resume_Portfolio_Career | Resume, portfolio, LinkedIn, interview loop, negotiation |
 
 ## Run locally
 

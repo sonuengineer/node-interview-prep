@@ -3607,6 +3607,10 @@ groups:
           summary: "Event loop delay p99 above 200ms"
 ```
 
+Note: yeh single-window (5m) alert ek simple starting point hai. Production mein SLO-based **multi-window multi-burn-rate alerts** isse behtar hain (fast burn pe page, slow burn pe ticket, aur short window se alert jaldi resolve): derivation, unit-tested rules and the lab proof are in `15_Observability_Cloud_CICD.md` (Module 3), jo is alert ko supersede karta hai.
+
+Endpoint naming: `/healthz` and `/readyz` here are generic names for liveness and readiness. The Task API project (`12_Project_Task_API.md`) implements the same two ideas as `GET /health` (liveness) and `GET /health/ready` (readiness, also 503 "draining" during shutdown). Names are a convention; the split is what matters.
+
 Queue alerts: depth badhna + **oldest message age** (age zyada = consumers piche ya stuck). DB: connections used / max, replica lag, slow query count.
 
 #### Incident triage flow (what interviewers love)

@@ -224,6 +224,7 @@ task-api/
   README.md                         (Stage 7)
   package.json                      (Stage 1, grows each stage; final in Stage 7)
   vitest.config.js                  (Stage 6)
+  eslint.config.js                  (Stage 6)
   .github/workflows/ci.yml          (EXT D)
   db/
     migrations/
@@ -235,6 +236,7 @@ task-api/
     app.js                          (Stage 1, rewritten in 2, 6, 7)
     server.js                       (Stage 1, rewritten in 3)
     worker.js                       (EXT B)
+    lifecycle.js                    (Stage 1)
     config/
       env.js                        (Stage 1)
       logger.js                     (Stage 1)
@@ -395,6 +397,9 @@ TRUST_PROXY=0
 CORS_ORIGINS=http://localhost:5173,http://localhost:3001
 # Serve Swagger UI at /docs (true/false)
 DOCS_ENABLED=true
+# Graceful shutdown drain: ms to keep serving after SIGTERM while readiness already answers 503.
+# 0 locally; behind a load balancer use a value longer than its health-check interval (for example 5000).
+DRAIN_DELAY_MS=0
 
 # --- MySQL ---
 DB_HOST=127.0.0.1
@@ -475,6 +480,10 @@ const schema = z.object({
   AUTH_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(10),
 
   REDIS_URL: z.string().min(1).optional(),
+
+  // SIGTERM -> readiness fails -> wait this long (still serving) -> server.close(). 0 = no drain (local dev).
+  // Behind a load balancer set it LONGER than its health-check interval (for example 5000).
+  DRAIN_DELAY_MS: z.coerce.number().int().min(0).max(60000).default(0),
 });
 
 const parsed = schema.safeParse(process.env);
@@ -522,6 +531,10 @@ export const logger = pino({
 
 ### `src/modules/health/health.routes.js` (Stage 1)
 
+Naming note: this project exposes `GET /health` (liveness) and, from Stage 3, `GET /health/ready` (readiness).
+The Week 7 Day 5 notes and many docs use the generic names `/healthz` and `/readyz` for the same two ideas;
+the names are a convention, the liveness-vs-readiness split is what matters.
+
 ```js
 import { Router } from 'express';
 
@@ -550,12 +563,25 @@ export function createApp() {
 }
 ```
 
+### `src/lifecycle.js` (Stage 1)
+
+A process-wide "are we shutting down?" flag. `server.js` sets it; the readiness probe (Stage 3) reads it.
+
+```js
+let draining = false;
+export const isDraining = () => draining;
+export const startDraining = () => {
+  draining = true;
+};
+```
+
 ### `src/server.js` (Stage 1 state)
 
 ```js
 import { createApp } from './app.js';
 import { env } from './config/env.js';
 import { logger } from './config/logger.js';
+import { isDraining, startDraining } from './lifecycle.js';
 
 const app = createApp();
 
@@ -568,26 +594,40 @@ const server = app.listen(env.PORT, (error) => {
   logger.info({ port: env.PORT, nodeEnv: env.NODE_ENV }, 'server listening');
 });
 
+// While draining, tell keep-alive clients (nginx, browsers) to open a NEW connection next time.
+// prependListener: run BEFORE Express so the header is set before any handler sends the response.
+server.prependListener('request', (_req, res) => {
+  if (isDraining()) res.setHeader('Connection', 'close');
+});
+
 let shuttingDown = false;
 
 function shutdown(reason) {
   if (shuttingDown) return;
   shuttingDown = true;
-  logger.info({ reason }, 'shutting down');
+
+  // 1. Start draining: readiness (Stage 3) now answers 503 and responses carry "Connection: close",
+  //    so the load balancer stops routing here. We keep serving normally meanwhile.
+  startDraining();
+  logger.info({ reason, drainDelayMs: env.DRAIN_DELAY_MS }, 'shutting down: draining');
 
   // Safety net: if something hangs, exit anyway. unref() so this timer alone cannot keep the process alive.
+  // Drain delay + 10 s; keep it below the orchestrator's kill timeout (docker stop_grace_period / k8s terminationGracePeriodSeconds).
   setTimeout(() => {
     logger.error('graceful shutdown timed out, forcing exit');
     process.exit(1);
-  }, 10_000).unref();
+  }, env.DRAIN_DELAY_MS + 10_000).unref();
 
-  // Stop accepting new connections; the callback runs when in-flight requests finish.
-  server.close((error) => {
-    if (error) logger.error({ err: error }, 'error while closing http server');
-    process.exit(error ? 1 : 0);
-  });
-  // Keep-alive sockets that are idle would otherwise hold close() open until they time out.
-  server.closeIdleConnections();
+  // 2. Wait for the load balancer to notice (health-check interval + margin), THEN stop listening.
+  setTimeout(() => {
+    // 3. Stop accepting new connections; the callback runs when in-flight requests finish.
+    server.close((error) => {
+      if (error) logger.error({ err: error }, 'error while closing http server');
+      process.exit(error ? 1 : 0);
+    });
+    // Idle keep-alive sockets would otherwise hold close() open until they time out.
+    server.closeIdleConnections();
+  }, env.DRAIN_DELAY_MS);
 }
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));
@@ -647,7 +687,10 @@ accepting new connections, lets in-flight requests finish, closes resources, and
 2. *Liveness vs readiness?* Liveness = restart me if I am dead (no dependency checks, or a DB blip restarts
    every pod). Readiness = send me traffic only if I can serve it (check DB).
 3. *What does `server.close()` actually do?* Stops accepting new connections and calls back when all existing
-   connections end. Idle keep-alive connections must be closed with `closeIdleConnections()` (Node 18.2+).
+   connections end. Idle keep-alive connections must be closed with `closeIdleConnections()` (Node 18.2+). Behind a proxy under constant load,
+   connections are never idle, so a correct shutdown first drains: fail readiness (503) and send `Connection: close` on every response, WAIT a drain delay
+   longer than the load balancer's health-check interval, and only then call `server.close()`. Measured: without the drain the safety timer fired after 10 s and
+   12 percent of requests got 502 during a rolling restart; with it, 0 errors.
 
 **Common mistakes**
 
@@ -830,7 +873,7 @@ export function toHttpError(err) {
 }
 
 // Express recognises an error handler by its 4 parameters. Do not remove `next` even if unused.
-// eslint-disable-next-line no-unused-vars
+// Express recognises an error handler by its 4 parameters, so keep all four even if one were unused.
 export function errorHandler(err, req, res, next) {
   if (res.headersSent) return next(err); // response already started; let Express close the socket
 
@@ -1352,8 +1395,8 @@ export const pool = mysql.createPool({
 
   waitForConnections: true, // when all connections are busy, queue the request instead of failing
   connectionLimit: env.DB_POOL_SIZE,
-  queueLimit: 100, // bounded queue = backpressure; the 101st waiter gets an error instead of memory growing forever
-  connectTimeout: 10_000,
+  queueLimit: 100, // last line of defence: the 101st waiter gets "Queue limit reached." (mysql2 has NO acquire timeout, so waiting can be long)
+  connectTimeout: 3_000, // a dead host must not hold a request for 10 s
   enableKeepAlive: true,
 
   timezone: 'Z', // interpret/send DATETIME and TIMESTAMP values as UTC
@@ -1470,6 +1513,24 @@ const MYSQL_ERRORS = {
   ER_ROW_IS_REFERENCED_2: { status: 409, code: 'IN_USE', message: 'This record is referenced by other records' },
 };
 
+// Errors that mean "the dependency is broken" (not "the caller sent something wrong"). The client may retry later.
+const INFRASTRUCTURE_CODES = new Set([
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'ETIMEDOUT',
+  'EPIPE',
+  'EAI_AGAIN',
+  'ENOTFOUND',
+  'PROTOCOL_CONNECTION_LOST',
+  'ER_CON_COUNT_ERROR',
+]);
+
+function isInfrastructureError(err) {
+  if (INFRASTRUCTURE_CODES.has(err?.code)) return true;
+  // mysql2 throws a plain Error (no code) when its own waiting line (queueLimit) is full
+  return typeof err?.message === 'string' && err.message.includes('Queue limit reached');
+}
+
 export function toHttpError(err) {
   if (err instanceof AppError) {
     return { status: err.statusCode, code: err.code, message: err.message, details: err.details };
@@ -1491,6 +1552,11 @@ export function toHttpError(err) {
     return { status: 413, code: 'PAYLOAD_TOO_LARGE', message: 'Request body is too large' };
   }
 
+  // MySQL unreachable, timed out or pool full: a 503 the client may retry, NOT a bug-style 500
+  if (isInfrastructureError(err)) {
+    return { status: 503, code: 'DEPENDENCY_UNAVAILABLE', message: 'A required service is temporarily unavailable' };
+  }
+
   if (typeof err?.code === 'string' && MYSQL_ERRORS[err.code]) {
     return MYSQL_ERRORS[err.code];
   }
@@ -1502,7 +1568,6 @@ export function toHttpError(err) {
   return { status: 500, code: 'INTERNAL_ERROR', message: 'Something went wrong' };
 }
 
-// eslint-disable-next-line no-unused-vars
 export function errorHandler(err, req, res, next) {
   if (res.headersSent) return next(err);
 
@@ -1529,6 +1594,7 @@ export function errorHandler(err, req, res, next) {
 import { Router } from 'express';
 import { logger } from '../../config/logger.js';
 import { pool } from '../../db/pool.js';
+import { isDraining } from '../../lifecycle.js';
 
 export const healthRouter = Router();
 
@@ -1538,7 +1604,9 @@ healthRouter.get('/health', (_req, res) => {
 });
 
 // Readiness: "can I serve traffic?" Checks the database. A load balancer stops routing here on 503.
+// While shutting down (draining) it answers 503 on purpose so the load balancer moves traffic away first.
 healthRouter.get('/health/ready', async (_req, res) => {
+  if (isDraining()) return res.status(503).json({ status: 'draining' });
   try {
     await pool.query('SELECT 1');
     res.json({ status: 'ready' });
@@ -1556,6 +1624,7 @@ import { createApp } from './app.js';
 import { env } from './config/env.js';
 import { logger } from './config/logger.js';
 import { pool } from './db/pool.js';
+import { isDraining, startDraining } from './lifecycle.js';
 
 const app = createApp();
 
@@ -1567,28 +1636,39 @@ const server = app.listen(env.PORT, (error) => {
   logger.info({ port: env.PORT, nodeEnv: env.NODE_ENV }, 'server listening');
 });
 
+// While draining, tell keep-alive clients to open a NEW connection next time (see Stage 1).
+server.prependListener('request', (_req, res) => {
+  if (isDraining()) res.setHeader('Connection', 'close');
+});
+
 let shuttingDown = false;
 
 function shutdown(reason) {
   if (shuttingDown) return;
   shuttingDown = true;
-  logger.info({ reason }, 'shutting down');
 
+  startDraining(); // readiness -> 503 "draining", responses get "Connection: close"
+  logger.info({ reason, drainDelayMs: env.DRAIN_DELAY_MS }, 'shutting down: draining');
+
+  // Safety net: drain delay + 10 s, below the orchestrator's kill timeout.
   setTimeout(() => {
     logger.error('graceful shutdown timed out, forcing exit');
     process.exit(1);
-  }, 10_000).unref();
+  }, env.DRAIN_DELAY_MS + 10_000).unref();
 
-  server.close(async (closeError) => {
-    if (closeError) logger.error({ err: closeError }, 'error while closing http server');
-    try {
-      await pool.end(); // wait for checked-out connections to return, then close them
-    } catch (poolError) {
-      logger.error({ err: poolError }, 'error while closing database pool');
-    }
-    process.exit(closeError ? 1 : 0);
-  });
-  server.closeIdleConnections();
+  // Wait for the load balancer to notice, THEN stop listening and release resources.
+  setTimeout(() => {
+    server.close(async (closeError) => {
+      if (closeError) logger.error({ err: closeError }, 'error while closing http server');
+      try {
+        await pool.end(); // wait for checked-out connections to return, then close them
+      } catch (poolError) {
+        logger.error({ err: poolError }, 'error while closing database pool');
+      }
+      process.exit(closeError ? 1 : 0);
+    });
+    server.closeIdleConnections();
+  }, env.DRAIN_DELAY_MS);
 }
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));
@@ -1643,7 +1723,8 @@ kaam khatam hone par wapas deti hai. Naya connection kholna (TCP + auth handshak
 
 **Internal working:** `pool.query()` ek free connection nikalta hai, query bhejta hai, aur connection wapas
 pool me daal deta hai. Agar sab busy hain to request queue me wait karti hai (`waitForConnections`), aur queue
-bhar jaaye to error (`queueLimit`). Transaction ke liye `pool.getConnection()` se ek connection lete hain
+bhar jaaye to error (`queueLimit`), aur mysql2 me acquire timeout nahi hota, isliye khud ek timeout/bulkhead lagao
+(Part 16, Module 1 and 6). Is project me full queue ka error 503 `DEPENDENCY_UNAVAILABLE` banta hai. Transaction ke liye `pool.getConnection()` se ek connection lete hain
 kyunki transaction ek hi connection par honi chahiye.
 
 **Frontend connection:** Browser bhi ek server ke saath limited parallel connections (HTTP/1.1) ya multiplexing
@@ -3272,13 +3353,36 @@ side effects after commit.
 # Pin majors: pino-http 11 needs pino 10, and vitest 4+ needs Node 22.12+ (npm also crashes on Node 20 with it).
 npm install helmet cors express-rate-limit@7 pino-http@10
 npm install -D vitest@3 supertest
+# Lint (ESLint 9 flat config; works on Node 20.19+ and 22). The CI workflow in Extension D runs `npm run lint`.
+npm install -D eslint@9 @eslint/js@9 globals@15
 ```
 
 Add to `package.json` scripts:
 
 ```json
 "test": "vitest run",
-"test:watch": "vitest"
+"test:watch": "vitest",
+"lint": "eslint ."
+```
+
+### `eslint.config.js` (Stage 6, project root)
+
+A minimal flat config: ESLint's recommended rules, Node globals, ES modules, and `no-unused-vars` as an error (names starting with `_` are allowed, which is how
+`_req` / `_res` are written in this project).
+
+```js
+import js from '@eslint/js';
+import globals from 'globals';
+
+export default [
+  js.configs.recommended,
+  {
+    files: ['**/*.js'],
+    languageOptions: { ecmaVersion: 2023, sourceType: 'module', globals: { ...globals.node } },
+    rules: { 'no-unused-vars': ['error', { argsIgnorePattern: '^_' }] },
+  },
+  { ignores: ['node_modules/', 'coverage/'] },
+];
 ```
 
 ### `src/middleware/http-logger.js`
@@ -4831,6 +4935,7 @@ describe('rate limiting', () => {
 ### Acceptance criteria
 
 - [ ] `npm test` creates `task_api_test`, migrates it and runs all unit + integration tests green.
+- [ ] `npm run lint` exits 0.
 - [ ] Setting `TEST_DB_NAME=task_api` makes the run abort with the "Refusing to run tests" message (the safety valve works).
 - [ ] `npm run dev` shows pretty request logs; `NODE_ENV=production node --env-file=.env src/server.js` shows one JSON object per line.
 - [ ] `curl -i -H "X-Request-Id: my-trace-0001" localhost:3000/api/v1/tasks` returns that id in the header, and the 401 body has the same `requestId`.
@@ -5487,7 +5592,8 @@ describe('OpenAPI document', () => {
     "migrate": "node --env-file=.env scripts/migrate.js",
     "seed": "node --env-file=.env scripts/seed.js",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "lint": "eslint ."
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",
@@ -5503,6 +5609,9 @@ describe('OpenAPI document', () => {
     "zod": "^4.1.0"
   },
   "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "eslint": "^9.0.0",
+    "globals": "^15.0.0",
     "pino-pretty": "^13.0.0",
     "supertest": "^7.1.0",
     "vitest": "^3.2.0"
@@ -5572,6 +5681,7 @@ Open http://localhost:3000/docs for the interactive API documentation.
 | `npm run migrate` | Apply new files from `db/migrations` |
 | `npm run seed` | Create the admin from `SEED_ADMIN_*` (add `-- --demo` for demo users) |
 | `npm test` | Run unit + integration tests (needs MySQL; uses the `*_test` database) |
+| `npm run lint` | ESLint (flat config in `eslint.config.js`); also runs in CI |
 
 ## Environment variables
 
@@ -5740,7 +5850,9 @@ and the "after commit" hook introduced here).
 1. Cache single-task reads (`GET /tasks/:id`) and list reads (`GET /tasks`) in Redis to reduce database load.
 2. Authorization must NEVER depend on the cache: the cache stores task data, the permission check runs after every read.
 3. Every write (create, update, delete, bulk status, reassign) invalidates what it affected, AFTER the transaction commits.
-4. If Redis is down, slow or not configured, the API keeps working (cache is an optimisation, not a dependency).
+4. If Redis is down or not configured, the API keeps working. If Redis is SLOW or unreachable without closing the connection (partition, overload), every cache
+   call must be bounded by a short deadline (150 ms) and a circuit breaker, otherwise each request waits for Redis: measured 3 s per request with 1.5 s of
+   Redis latency and up to 10 s during a partition. Cache failures become cache misses.
 5. Without `REDIS_URL` the code path is a pure pass-through: all earlier tests still pass unchanged.
 
 ### Implementation approach
@@ -5759,8 +5871,10 @@ and the "after commit" hook introduced here).
   so the client must not get an error for it.
 - Invalidate AFTER commit, not inside the transaction: otherwise a concurrent reader could re-fill the cache with the old
   row between your delete and your commit.
-- Redis client options: `enableOfflineQueue: false` and `maxRetriesPerRequest: 1`, so a dead Redis makes commands fail
-  immediately (and we fall back to the DB) instead of queueing requests and slowing the API.
+- Redis client options: `enableOfflineQueue: false` and `maxRetriesPerRequest: 1`, so a Redis whose connection is CLOSED makes commands fail
+  immediately (and we fall back to the DB) instead of queueing them. They do nothing for a Redis that is connected but slow or silent:
+  every cache call is wrapped in a 150 ms deadline and a small circuit breaker in `safely()` (see Part 16, Module 3, for the fuller version).
+  A failed invalidation during an outage leaves stale entries until the TTL; keep TTLs short for data where staleness matters.
 
 ### Commands
 
@@ -5789,13 +5903,37 @@ const redis = env.REDIS_URL
 
 redis?.on('error', (err) => logger.warn({ err }, 'redis connection error'));
 
-// A cache must never take the API down: any Redis problem becomes "cache miss".
+const CALL_DEADLINE_MS = 150; // a cache call slower than this counts as a failure
+const BREAKER_FAILURES = 3; // consecutive failures that open the breaker
+const BREAKER_OPEN_MS = 5_000; // while open, skip Redis entirely (instant "miss")
+let consecutiveFailures = 0;
+let openUntil = 0;
+let lastWarnAt = 0;
+
+function withDeadline(promise) {
+  let timer;
+  const timeout = new Promise((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error('cache call timed out')), CALL_DEADLINE_MS);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+// A cache must never take the API down: any Redis problem (error, slow, silent) becomes "cache miss".
 async function safely(label, fallback, operation) {
   if (!redis) return fallback;
+  if (Date.now() < openUntil) return fallback; // breaker open: do not even try
   try {
-    return await operation(redis);
+    const result = await withDeadline(Promise.resolve(operation(redis)));
+    consecutiveFailures = 0;
+    return result;
   } catch (err) {
-    logger.warn({ err, label }, 'cache operation failed, continuing without cache');
+    consecutiveFailures += 1;
+    if (consecutiveFailures >= BREAKER_FAILURES) openUntil = Date.now() + BREAKER_OPEN_MS;
+    if (Date.now() - lastWarnAt > 10_000) {
+      // throttled: one warning per 10 s instead of one per failed call
+      lastWarnAt = Date.now();
+      logger.warn({ err, label }, 'cache operation failed, continuing without cache');
+    }
     return fallback;
   }
 }
@@ -6285,7 +6423,11 @@ reading from the cache, never stored in it, and cache keys include the viewer's 
 
 1. When a task is assigned to someone (on create, on assignee change) the assignee should get a notification, and when tasks are reassigned the new owner gets one summary.
 2. Sending must NOT slow down or fail the HTTP request: it runs in a separate worker process.
-3. Jobs survive restarts (stored in Redis), retry with exponential backoff (5 attempts) and a duplicate enqueue of the same logical event does not create a second job (stable job id).
+3. Jobs survive restarts (stored in Redis) and retry with exponential backoff (5 attempts). Every job has a stable job id (`task-assigned-<taskId>-<assigneeId>-<version>`,
+   `tasks-reassigned-<uuid>` created once per request), so enqueueing the same event twice creates one job, but ONLY while BullMQ still remembers the job
+   (`removeOnComplete.age` is 3600 s) and it does NOT stop redelivery of an already processed job (for example a worker crash after sending and before the ack).
+   Handlers therefore must be idempotent: the hardened version (Part 16, Module 4) gives every job a `dedupeKey` and the worker claims it with `INSERT IGNORE`
+   before sending. The base code below only uses the job id as the provider idempotency key (see the comment in `worker.js`).
 4. The worker shuts down gracefully (finishes active jobs, then exits).
 5. Without `REDIS_URL`, enqueueing is a no-op and the API is unaffected.
 
@@ -6298,7 +6440,10 @@ reading from the cache, never stored in it, and cache keys include the viewer's 
 - Job handlers must be **idempotent** because delivery is "at least once": a job may run twice (worker crash after sending but before acking). Use the job id as the idempotency key towards the email provider.
 - Handlers re-load fresh data by id instead of trusting the payload (the task may have been deleted or the user deactivated by the time the job runs).
 - A job that can never succeed (unknown job name) throws `UnrecoverableError` so it is not retried 5 times for nothing.
-- Producer connection: `enableOfflineQueue: false`, so `queue.add` fails fast when Redis is down instead of hanging the request (we catch and log). Worker connection: `maxRetriesPerRequest: null`, which BullMQ requires for workers.
+- Producer connection: `enableOfflineQueue: false`, so `queue.add` fails fast when the Redis connection is CLOSED. It still waits when Redis is slow or silent
+  (measured: one POST took 12 s with 2 s of Redis latency), so bound the call (500 ms) with a deadline and a breaker. "Catch and log" LOSES the notification
+  (measured: 80 of 248 lost in a 14 s outage): park failed jobs in a durable outbox table in MySQL and republish them from the worker (Part 16, Module 2).
+  The base code below only catches and logs (a known limitation). Worker connection: `maxRetriesPerRequest: null`, which BullMQ requires for workers.
 
 ### Commands
 
@@ -6372,6 +6517,7 @@ export async function closeQueue() {
 ### `src/modules/tasks/task-hooks.js` (FINAL: replaces the Extension A version)
 
 ```js
+import { randomUUID } from 'node:crypto';
 import { logger } from '../../config/logger.js';
 import { enqueueNotification } from '../../queue/notifications.js';
 import * as taskCache from './task-cache.js';
@@ -6396,11 +6542,12 @@ export async function afterTasksChanged({ taskIds, assignments = [], reassignmen
     }
 
     if (reassignment) {
-      await enqueueNotification('tasks-reassigned', {
-        toUserId: reassignment.toUserId,
-        taskIds: reassignment.taskIds,
-        actorId: reassignment.actorId,
-      });
+      await enqueueNotification(
+        'tasks-reassigned',
+        { toUserId: reassignment.toUserId, taskIds: reassignment.taskIds, actorId: reassignment.actorId },
+        // Created ONCE per request, so a duplicate enqueue of this same event reuses the id.
+        `tasks-reassigned-${randomUUID()}`,
+      );
     }
   } catch (err) {
     logger.error({ err, taskIds }, 'post-commit hook failed');
@@ -6495,7 +6642,7 @@ import { cache } from './cache/cache.js';
 import { closeQueue } from './queue/notifications.js';
 ```
 
-and replace the body of the `server.close(...)` callback so it closes everything (each failure is logged, none blocks the others):
+and replace the body of the `server.close(...)` callback (the one inside the drain-delay `setTimeout`) so it closes everything (each failure is logged, none blocks the others):
 
 ```js
   server.close(async (closeError) => {
@@ -6550,7 +6697,11 @@ describe('afterTasksChanged', () => {
     await afterTasksChanged({ taskIds: [1, 2, 3], reassignment: { toUserId: 9, taskIds: [1, 2, 3], actorId: 4 } });
 
     expect(enqueueNotification).toHaveBeenCalledTimes(1);
-    expect(enqueueNotification).toHaveBeenCalledWith('tasks-reassigned', { toUserId: 9, taskIds: [1, 2, 3], actorId: 4 });
+    expect(enqueueNotification).toHaveBeenCalledWith(
+      'tasks-reassigned',
+      { toUserId: 9, taskIds: [1, 2, 3], actorId: 4 },
+      expect.stringMatching(/^tasks-reassigned-[0-9a-f-]{36}$/),
+    );
   });
 
   it('never throws, even when the cache or the queue fails', async () => {
@@ -6647,7 +6798,7 @@ delivery is at least once. If enqueueing fails the request still succeeds and th
   to substitute `${...}` values.
 - **Migrations are a separate one-shot service**, not part of the API start command: with several API replicas you must not run the same migration concurrently.
 - The same image runs three roles (`migrate`, `api`, `worker`) with different `command`s.
-- `node` runs as PID 1 and handles SIGTERM itself (we wrote the handlers in Stage 1 and Extension B). `stop_grace_period` is longer than our internal 10 s / 15 s hard timeouts.
+- `node` runs as PID 1 and handles SIGTERM itself (we wrote the handlers in Stage 1 and Extension B). `stop_grace_period` is longer than `DRAIN_DELAY_MS` plus our internal 10 s / 15 s hard timeouts.
 - Prerequisites: Docker Desktop (or Docker Engine + the compose plugin), a committed `package-lock.json`. Extension C assumes Extensions A and B exist (Redis, worker); if you skipped them, delete the `redis` and `worker`
   services and the `REDIS_URL` line.
 
@@ -6967,6 +7118,10 @@ server {
 }
 ```
 
+Keep-alive: Node's default `server.keepAliveTimeout` is 5 s, shorter than nginx/ALB upstream idle timeouts, so a proxy can reuse a connection at the instant Node closes it
+and return an occasional 502. Add to `src/server.js` (after `app.listen`): `server.keepAliveTimeout = 65_000; server.headersTimeout = 66_000;` -- it must be longer than the proxy's keep-alive timeout.
+(Not reproduced in the lab because it needs idle gaps and a real proxy, but it is the standard fix.)
+
 With `TRUST_PROXY=1`, Express takes the client IP from `X-Forwarded-For` (one hop). Rate limiting and logs then see the real client.
 
 ### 5. CI: `.github/workflows/ci.yml`
@@ -6980,6 +7135,17 @@ on:
   pull_request:
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint   # script + eslint.config.js are created in Stage 6
+
   test:
     runs-on: ubuntu-latest
     services:
@@ -7010,7 +7176,7 @@ jobs:
 
   publish:
     if: github.ref == 'refs/heads/main'
-    needs: test
+    needs: [lint, test]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -7443,7 +7609,7 @@ These are questions about the project as a whole. (Topic-level questions live in
 
 **Q19. What does graceful shutdown do in your app? [ESSENTIAL, Basic]**
 
-**Interview answer:** "On SIGTERM the server stops accepting new connections and closes idle keep-alive sockets, in-flight requests finish, then the database pool (and Redis and queue connections) are closed, and the process exits with code 0. A timer forces exit after 10 seconds so a stuck request cannot block a deployment. The worker does the same: it stops taking jobs, lets active ones finish, then closes."
+**Interview answer:** "On SIGTERM the server first fails its readiness probe and adds Connection: close to responses so the load balancer stops sending traffic, waits a drain delay longer than the health-check interval, then stops accepting connections and closes idle keep-alive sockets. In-flight requests finish, then the database pool (and Redis and queue connections) are closed and the process exits with code 0. A timer (drain delay plus 10 seconds, below the orchestrator's kill timeout) forces exit so a stuck request cannot block a deployment. The worker does the same: it stops taking jobs, lets active ones finish, then closes."
 
 **Q20. Is this a monolith? Would you split it into microservices? [ESSENTIAL, Intermediate]**
 

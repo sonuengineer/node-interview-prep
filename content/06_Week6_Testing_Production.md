@@ -1819,7 +1819,7 @@ Layers, outermost to innermost (each inner timeout must be shorter than the one 
 | Your handler | overall deadline for the request | Optional, via AbortSignal |
 | Outbound HTTP | `AbortSignal.timeout(ms)` per call | 1-5s typical, be specific |
 | Database | pool `connectTimeout`, per query `timeout` option, MySQL `max_execution_time` for SELECT | Prevent runaway queries |
-| Pool acquisition | `queueLimit`, `waitForConnections` | Fail fast instead of queueing forever |
+| Pool acquisition | `queueLimit`, `waitForConnections` (mysql2 has no acquire timeout: add your own bulkhead/deadline) | Fail fast instead of queueing forever |
 
 Server-side settings:
 
@@ -2522,6 +2522,8 @@ import { Redis } from 'ioredis';
 import { logger } from '../logger.js';
 
 // Client for CACHING: fail fast so a Redis outage does not make every API call hang. Fall back to the DB instead.
+// Caveat (proved in the chaos lab, Part 16): these options only help when the connection is CLOSED. A Redis that is connected but
+// slow or silent (partition, overload) is NOT bounded by them: wrap each call in a short deadline (for example 150 ms) plus a circuit breaker.
 export function createCacheRedis(url = process.env.REDIS_URL ?? 'redis://127.0.0.1:6379') {
   const redis = new Redis(url, {
     connectTimeout: 2000,
@@ -3292,7 +3294,7 @@ BullMQ features to know (names are enough for the interview, details in docs):
 | Priority | `priority` (lower number = higher priority) |
 | Concurrency | Worker `concurrency` |
 | Rate limiting | Worker `limiter: { max, duration }` |
-| Dedupe | `jobId` (ignored while a job with that id still exists; removal on complete frees the id) |
+| Dedupe | `jobId` (ignored while a job with that id still exists; removal on complete frees the id). Enqueue-time only: it does NOT stop redelivery of an already processed job (worker crash before the ack), so handlers must still be idempotent |
 | Recurring / cron | `queue.upsertJobScheduler(...)` in recent BullMQ 5.x; older versions used `repeat: { pattern }`. Version-dependent: check the docs |
 | Flows | parent/child jobs (`FlowProducer`) |
 | Observability | `QueueEvents`, `queue.getJobCounts()`, Bull Board UI |
@@ -4265,7 +4267,7 @@ Node-side: `process.memoryUsage()`, event loop delay/utilization logs (6.1), `pr
 - **First checks**: `Threads_connected` vs `max_connections`; processlist grouped by user/host (which service?); number of app instances x pool `connectionLimit`; are connections idle ("Sleep") or running?
 - **Likely causes**: pool size times instance count exceeds MySQL `max_connections` (especially during rolling deploys when old and new instances overlap, or a new cluster/worker mode), connection leaks (`getConnection()` without `release()` in an error path, transaction never committed/rolled back), long transactions, slow queries holding connections, creating a new pool/connection per request, a worker or cron process using its own large pool.
 - **Confirm**: processlist shows many "Sleep" connections from app hosts (leak or oversized pools) vs many "Query" with long times (slow queries); search code for `getConnection` without `finally { conn.release() }`.
-- **Fix**: always `try { ... } finally { conn.release() }`; correct the pool size (`instances x limit < max_connections` with headroom); set `queueLimit` and acquire timeout so you fail fast; shorten transactions; use one shared pool per process; kill stuck sessions as emergency mitigation.
+- **Fix**: always `try { ... } finally { conn.release() }`; correct the pool size (`instances x limit < max_connections` with headroom); set `queueLimit` and add your own acquire timeout or bulkhead (mysql2 has NO acquire timeout) so you fail fast; shorten transactions; use one shared pool per process; kill stuck sessions as emergency mitigation.
 - **Prevent**: pool metrics (in use / waiting), alerts on `Threads_connected` over 80 percent, connection budget per service documented, graceful shutdown that ends the pool (Day 5).
 
 #### Playbook 6: Random 502/504 from the load balancer or nginx
@@ -4749,7 +4751,7 @@ scoped logger (`req.log`).
 
 **Q14 (Intermediate).** The DB is the source of truth, so write it first; then delete the cached key so the next read repopulates from fresh data. Deleting is idempotent and order-independent: two concurrent writers cannot leave an older value in the cache by completing in the opposite order, and a rolled-back transaction cannot leave a phantom value. Updating the cache value risks ordering races and caching data that was never committed. (Even delete-after-write has a small stale-set race, mitigated with short TTLs.)
 
-**Q15 (Intermediate).** `server.close()` waits until ALL connections end. Idle HTTP keep-alive connections (and long-lived ones like SSE/WebSockets) keep the server open. Node 19+ closes idle connections in `close()`; on older 18.x call `server.closeIdleConnections()`, send `Connection: close` while draining, and after a deadline call `server.closeAllConnections()` and exit. Also keep a force-exit timer shorter
+**Q15 (Intermediate).** `server.close()` waits until ALL connections end. Idle HTTP keep-alive connections (and long-lived ones like SSE/WebSockets) keep the server open. Node 19+ closes idle connections in `close()`; on older 18.x call `server.closeIdleConnections()`. Behind a proxy under constant load connections are never idle, so first drain: fail readiness, send `Connection: close` while draining, wait a drain delay longer than the LB health-check interval (measured in the chaos lab: without it 12 percent of requests got 502 in a rolling restart), and after a deadline call `server.closeAllConnections()` and exit. Also keep a force-exit timer shorter
 than the platform's SIGKILL timeout. Remaining open handles (DB pool, Redis, timers) can also prevent exit; close them.
 
 **Q16 (Intermediate).** Slow DB: Node CPU low, event loop delay normal, stage timings show the `db.*` stage long, processlist/slow log shows long queries or waits, pool queue growing. Blocked event loop: one core near 100 percent, high event loop delay/utilization, ALL endpoints (including `/health`) are slow, timing logs show long gaps outside I/O stages, and a CPU profile shows a hot synchronous function.

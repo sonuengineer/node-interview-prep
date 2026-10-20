@@ -804,7 +804,7 @@ or `DENSE_RANK()` in a window function.)
 
 Create a `GET /tasks` Express route handler (no DB needed; use an in-memory array) with whitelisted
 sorting (`sort=created_at|priority`, `order=asc|desc`), `status` filter, and offset pagination returning
-`{ data, page, limit, total }`. Compare with the Task API project's Stage 5.
+`{ data, page, limit, total }`. Compare with the Task API project's Stage 5 (it returns `{ data, meta: { page, limit, total, totalPages } }`).
 
 ### Self-assessment checklist
 
@@ -1161,7 +1161,7 @@ export async function login(pool, { email, password }) {
 }
 ```
 
-Notes: the `users` table needs `password_hash VARCHAR(100) NOT NULL` (the Task API project schema has it; the
+Notes: the `users` table needs `password_hash VARCHAR(255) NOT NULL` (the Task API project schema has it; the
 Day 51 drill table omits it for brevity). Relying on the UNIQUE constraint (and catching the duplicate error)
 is race-safe; a "SELECT then INSERT" check is not. Validate password length (e.g. 8-72 chars) at the edge.
 Mistakes: logging the request body, returning `password_hash` in the response, telling the client which of
@@ -2282,10 +2282,13 @@ processing the same message twice has the same effect as processing it once."
 ### Part B - Project explanation: Task Management API
 
 Reference: 12_Project_Task_API.md (Stages 1-7, Extensions A-D). The answers below assume the project follows
-that document: Node.js 22, Express 5, MySQL 8 via `mysql2/promise`, JWT access + refresh tokens, RBAC
-(`admin`, `member`), validation, centralized error handling, pagination/filtering/sorting, transactions, tests
-(Jest or Vitest + Supertest), structured logging, helmet/CORS/rate limiting. If your actual column or route
-names differ, adapt the specifics; keep the reasoning.
+that document: Node.js 22, Express 5, MySQL 8 via `mysql2/promise`, a short-lived JWT access token (HS256, 1 h by
+default; refresh tokens are NOT built, they are a described extension), RBAC with three roles (`admin`, `manager`,
+`member`), zod validation, centralized error handling, pagination/filtering/sorting, transactions, tests (Vitest +
+Supertest against a real MySQL test database), structured logging (pino-http), helmet/CORS/rate limiting. Real
+facts to keep straight: tables `users`, `tasks`, `task_events` (audit log); base path `/api/v1`; 15 endpoints
+including `POST /tasks/bulk-status` and `POST /tasks/reassign`; health probes `/health` and `/health/ready`.
+If your actual column or route names differ, adapt the specifics; keep the reasoning.
 
 **Rules for talking about your project**
 
@@ -2297,22 +2300,25 @@ names differ, adapt the specifics; keep the reasoning.
 **The 2-minute pitch (practice aloud)**
 
 **Interview answer:** "I built a Task Management REST API to learn production backend practices. It uses
-Node.js with Express and MySQL. Users sign up and log in; passwords are hashed with bcrypt and sessions use a
-short-lived JWT access token plus a rotating refresh token. There are two roles, admin and member, enforced in
-middleware, and members can only access their own or assigned tasks, which I check in the service layer.
+Node.js with Express 5 and MySQL. Users register and log in; passwords are hashed with bcrypt and the API uses a
+short-lived JWT access token (HS256, algorithm pinned on verify). I know that a refresh-token flow is the main
+gap, and I can describe how I would add it. There are three roles, admin, manager and member, enforced in
+middleware, and members can only see tasks assigned to them or created by them, which the service and the query enforce.
 The code is layered as routes, controllers, services, and repositories, with all SQL parameterized. I added
-request validation, a centralized error handler with a consistent error shape, pagination, filtering and
-whitelisted sorting, and transactions where multiple writes must succeed together, like reassigning a task
-and writing an activity log. I covered it with unit tests for services and Supertest integration tests,
-including negative cases for authentication and authorization, and I added structured logging with request
-IDs, helmet, CORS, and rate limiting. As an extension I looked at Redis caching and background jobs. The
+zod request validation, a centralized error handler with one consistent error shape, pagination, filtering and
+whitelisted sorting, and transactions where multiple writes must succeed together, like bulk status changes and
+reassigning a leaving colleague's tasks together with audit rows in a task_events table. I covered it with unit tests
+and Supertest integration tests against a real MySQL test database,
+including negative cases for authentication and authorization and a rollback test, and I added structured logging with request
+IDs, helmet, CORS, and rate limiting. As extensions I built Redis caching and BullMQ background jobs. The
 biggest thing I learned was how much of backend quality is in the error paths: validation, authorization,
 and concurrency."
 
 **P-01. Walk me through the architecture.** Basic
 
-Answer: "A request flows through middleware first: request id, logger, helmet, CORS, rate limiter, JSON parser.
-Then the router maps to a controller, which only parses input and shapes the response. The controller calls a
+Answer: "A request flows through middleware first: the HTTP logger (which also assigns the request id), helmet and
+CORS, the rate limiter, and the JSON parser with a 100 KB limit. Then the router runs `authenticate`, `authorize(roles)`
+and a zod `validate` step, and maps to a controller, which only parses input and shapes the response. The controller calls a
 service that contains business rules, authorization decisions like ownership, and transactions. The service
 calls a repository, the only layer that writes SQL, using a mysql2 connection pool. Errors thrown anywhere
 go to a single error-handling middleware that maps them to status codes and a consistent JSON body."
@@ -2321,53 +2327,58 @@ by faking the repository, and SQL changes stay in one place."
 
 **P-02. Why MySQL and not MongoDB?** Basic
 
-Answer: "Tasks, users, projects, and comments are naturally relational, I need foreign keys, transactions
+Answer: "Users, tasks, and the task audit events are naturally relational, I need foreign keys, transactions
 across tables, and flexible filtering and sorting with joins. MongoDB would work, but I would be re-implementing
 relational guarantees in application code. I would choose Mongo for document-shaped, read-as-a-unit data
 with a flexible schema."
 
 **P-03. Show me your schema and explain the indexes.** Intermediate
 
-Answer: "Core tables are users, tasks, comments, refresh_tokens, and an activity or audit table. tasks has
-owner_id and assignee_id foreign keys to users, a status enum, priority, due date, and timestamps. The main
-list query filters by owner and status and sorts by created_at, so I created a composite index on
-(owner_id, status, created_at); equality columns first, then the sort column, so MySQL can avoid a filesort.
-I verified it with EXPLAIN. I store a hash of refresh tokens, not the token itself, with an expiry and a revoked flag."
-Follow-up: "What if you also filter by assignee?" -> "Another index (assignee_id, status, created_at), because the
-leftmost-prefix rule means the first one cannot serve assignee filters; I would check the write overhead before adding more."
+Answer: "Three tables: users (unique email, role enum, is_active, password_hash), tasks, and task_events, an append-only
+audit log. tasks has created_by and assignee_id foreign keys to users (ON DELETE SET NULL), a status enum, a priority enum,
+a nullable due_date, and timestamps. Indexes are each tied to a query: (assignee_id, status) serves 'my open tasks', the
+reassign lock query and the assignee filter; (status, due_date) serves overdue and due-soon queries; created_at serves the default
+sort; and created_by serves the visibility rule. Equality columns come first, then the range or sort column. I verified one of them with EXPLAIN."
+Follow-up: "What if you also filter by assignee and sort by created_at?" -> "Then (assignee_id, status) does not cover the sort, so
+MySQL may filesort; I would test with EXPLAIN and, if it matters, add (assignee_id, created_at). The leftmost-prefix rule decides
+which filters an index can serve, and I would weigh the write overhead before adding more."
 
 **P-04. How does authentication work end to end?** Intermediate
 
 Answer: "On signup I validate input, hash the password with bcrypt, and rely on the unique email constraint to
 detect duplicates. On login I look up the user by email, compare with bcrypt, and return the same error for
-an unknown user or a wrong password. I issue an access token valid for about 15 minutes, containing user id and role,
-signed with HS256 from an environment secret, and a refresh token that is random, stored hashed in the DB,
-and delivered in an HttpOnly cookie. The auth middleware verifies the signature, expiry, and issuer with a
-pinned algorithm and sets req.user. On refresh I rotate: invalidate the old refresh token and issue a new one,
-and if an old one is reused I revoke the family."
+an unknown user or a wrong password. I issue an access token (1 hour by default, configurable) with sub, role, iss and exp,
+signed with HS256 from an environment secret. The `authenticate` middleware verifies the signature, expiry, and issuer with a
+pinned algorithm, then loads the user from the database, so a deactivated account or a changed role takes effect immediately,
+and sets req.user. The project has no refresh tokens; to add them I would keep the access token short, store a hash of a random
+refresh token in a table, send it in an HttpOnly cookie, rotate it on `POST /auth/refresh`, and revoke the whole family if an old one is reused."
 
 **P-05. How do you implement authorization?** Intermediate
 
-Answer: "Two levels. Role checks in route middleware, for example only admin can list all users. Then
-resource-level checks in the service: a member can access a task only if they own it or are assigned. I put
-the ownership condition inside the query, like WHERE id = ? AND (owner_id = ? OR assignee_id = ?), and return
-404 when no row matches so I do not leak existence. I have negative tests where user B requests user A's task."
+Answer: "Two levels. Role checks in route middleware, for example `authorize('admin', 'manager')` on listing users and
+deleting tasks, and admin only for changing a user's role. Then
+resource-level checks in the service: a member can see a task only if it is assigned to them or created by them. I put
+the visibility condition inside the query, like WHERE (t.assignee_id = ? OR t.created_by = ?), and return
+404 when no row matches so I do not leak existence. Managers and admins see all tasks. I have negative tests where user B requests user A's task."
 
 **P-06. Where did you use transactions, and why?** Intermediate
 
-Answer: "Anywhere two or more writes must be atomic. For example, reassigning a task updates tasks.assignee_id
-and inserts an activity row; if the second insert fails, the first must roll back. I get a connection from
-the pool, begin, run the statements, commit, roll back in catch, and release in finally. I keep transactions
-short and never call external services inside them."
-Follow-up: "What about two users updating the same task at once?" -> "I add a version column for optimistic
-locking: UPDATE ... SET ..., version = version + 1 WHERE id = ? AND version = ?; if affectedRows is 0 I
-return 409 and the client refetches. For counters or stock-like fields I use atomic updates or SELECT FOR UPDATE."
+Answer: "Anywhere two or more writes must be atomic. For example, `POST /tasks/reassign` moves a leaving user's open tasks
+to another user and inserts task_events audit rows; if the audit insert fails, the moves must roll back. A small `withTransaction`
+helper gets a connection from the pool, begins, runs the callback, commits, rolls back in catch, releases in finally, and retries
+on deadlock with a short backoff. I keep transactions short and never call external services inside them; the cache invalidation
+and notifications run after commit."
+Follow-up: "What about two users updating the same task at once?" -> "The service locks the row with SELECT ... FOR UPDATE
+inside the transaction (bulk operations use ORDER BY id so concurrent requests lock in the same order and cannot deadlock on those rows),
+so the second request waits and then sees the committed state. An optimistic version column
+(UPDATE ... WHERE id = ? AND version = ?, 409 when affectedRows is 0) is a drill I would add if I wanted to avoid holding locks."
 
 **P-07. How do you validate input and why?** Basic
 
 Answer: "At the edge, with a schema validator, before any business logic. It checks types, lengths, enums,
-and ranges, coerces query params, and strips unknown fields, which blocks mass assignment such as a client
-sending role or ownerId. Failures return 422 (or 400, consistently) with field-level details. Validation
+and ranges, coerces query params, and rejects unknown fields (zod strict objects), which blocks mass assignment such as a client
+sending role. Schema failures return 400 `VALIDATION_ERROR` with field-level details; 422 is reserved for a valid-shaped request that a business rule
+rejects, for example assigning a task to a deactivated user. Validation
 protects the database and the logic, but the real SQL injection defence is parameterized queries, not validation."
 
 **P-08. Describe your error handling.** Intermediate
@@ -2376,46 +2387,50 @@ Answer: "I use custom error classes such as AppError with status, code, and mess
 controllers do not try/catch everything. Express 5 forwards rejected promises from async handlers to the
 error middleware, which maps known errors to their status and anything unexpected to a generic 500 while logging the
 stack with the request id. Clients never see stack traces or SQL errors. Specific cases, like body parser
-errors and MySQL duplicate entry errors, are translated into 400 and 409."
+errors and MySQL duplicate entry errors, are translated into 400 `INVALID_JSON` and 409 `CONFLICT`; an illegal status
+change (cancelled is terminal) is a 409 `INVALID_TRANSITION`. Every error body has the same shape with a requestId."
 
 **P-09. How did you implement pagination, filtering, and sorting?** Intermediate
 
-Answer: "Query params page and limit with a maximum limit of 100, status and assignee filters, and a
-whitelisted sort map so that column names never come from user input. The response includes data plus
-page, limit, and total. I know offset pagination gets slow for deep pages because MySQL scans and discards rows,
+Answer: "Query params page and limit (default 20, maximum 100), status, priority, assignee, due-date and text filters, and a
+whitelisted sort field list (createdAt, dueDate, priority, title, status) with `id` as a tie-breaker so that column names never come from user input
+and pages are stable. The response is `{ data, meta }` where meta has page, limit, total and totalPages.
+I know offset pagination gets slow for deep pages because MySQL scans and discards rows,
 so for a feed-like endpoint I would use keyset pagination on (created_at, id) with a matching index."
 
 **P-10. What did you test and how?** Intermediate
 
-Answer: "Unit tests for services with a fake repository, covering business rules and error cases.
-Integration tests with Supertest against the real Express app and a test MySQL database, reset between
-tests with transactions or truncation. I focus on the contract: status codes, response shape, validation
-errors, auth failures (no token, expired token, wrong role), ownership checks, pagination bounds, and
-duplicate handling. I mock only external boundaries such as email, not the database in integration tests."
-Follow-up: "What do you not test?" -> "Third-party libraries and trivial getters; and I know I have not load
-tested beyond a basic autocannon run, so I would not make performance claims."
+Answer: "Vitest and Supertest. Unit tests for pure logic: the query builder, the task policy, pagination, error mapping, the
+auth middleware with a mocked repository, and the transaction helper's deadlock retry with a fake pool.
+Integration tests with Supertest against the real Express app and a separate MySQL test database (`task_api_test`), rows deleted between
+tests. I focus on the contract: status codes, response shape, validation
+errors, auth failures (no token, expired token, wrong role), ownership checks, pagination bounds, duplicate handling,
+a rollback test that proves a failed bulk operation changes nothing, and security headers and rate limiting. I mock only external boundaries
+such as Redis and the queue, not the database in integration tests."
+Follow-up: "What do you not test?" -> "Third-party libraries and trivial getters; I have no true concurrency test for the row locking, no
+end-to-end browser test, and I have not load tested, so I would not make performance claims."
 
 **P-11. How do you handle security in the API?** Intermediate
 
-Answer: "helmet for security headers, a CORS allowlist, a JSON body size limit, rate limiting with stricter
-limits on login, bcrypt hashing, JWT verification with a pinned algorithm, parameterized queries, whitelisted
-sort fields, input validation with unknown fields stripped, generic auth error messages, secrets from
+Answer: "helmet for security headers, a CORS allowlist from config, a 100 KB JSON body limit, rate limiting (a global limit plus a
+stricter one on the auth routes that only counts failed attempts), bcrypt hashing, JWT verification with a pinned algorithm, parameterized queries, whitelisted
+sort fields, strict input validation that rejects unknown fields, generic auth error messages, secrets from
 environment variables, and `npm audit` plus a lockfile. In production I would run behind HTTPS with trust proxy
 configured correctly and run the container as a non-root user."
 
 **P-12. How do you log and debug issues?** Intermediate
 
-Answer: "Structured JSON logs (pino style) with a request id generated or read from X-Request-Id at the first
-middleware and attached to every log line and the response header. I log method, path, status, duration, and
+Answer: "Structured JSON logs (pino and pino-http) with a request id read from X-Request-Id when the caller sends a sane one, otherwise a UUID, at the first
+middleware and attached to every log line, the response header, and the `requestId` field of every error body. I log method, path, status, duration, and
 user id, but never passwords, tokens, or full bodies. Errors are logged once at the error handler with
 the stack. That lets me trace one failing request across logs."
 
 **P-13. How would you scale this API?** Advanced
 
 Answer: "First measure. The app is stateless because auth is token-based, so I can run multiple instances
-behind a load balancer. The first bottleneck is the database, so I verify indexes with EXPLAIN and size the
+behind a load balancer; the in-memory rate limiter would move to a Redis store so limits are shared. The first bottleneck is the database, so I verify indexes with EXPLAIN and size the
 connection pool so instances times pool size stays below max_connections. Then I cache hot read endpoints
-in Redis with cache-aside and invalidate on writes, move slow work like emails and reports to a queue with workers,
+in Redis with cache-aside (Extension A) and invalidate on writes, move slow work like notifications to a BullMQ queue with a separate worker process (Extension B),
 and add read replicas if reads dominate, accepting replica lag for non-critical reads. I would keep it
 a modular monolith until a clear reason justified splitting."
 
@@ -2425,14 +2440,15 @@ Pick one real one; use this shape. Example: "My integration tests passed individ
 because tests shared database state. I reproduced it by running the suite in random order, found tests relied
 on rows from earlier tests, and fixed it by resetting tables in beforeEach and creating fixtures inside each
 test. It taught me that tests must be independent and that flaky tests hide real bugs." (Alternatives: a pool
-connection not released on an error path; Express body parser order; a refresh-token rotation race.)
+connection not released on an error path; Express middleware order, for example the rate limiter before the body parser; a deadlock between
+two concurrent bulk reassignments, fixed by locking rows with `ORDER BY id`.)
 
 **P-15. What would you do differently or improve next?** Basic
 
-Answer: "Add refresh-token reuse detection if not complete, keyset pagination on the busiest list, Redis
-caching with explicit invalidation, a background job for notifications with retries, an OpenAPI spec generated
-from the validation schemas, CI running tests and lint, and Docker for a reproducible deployment. I would also
-add metrics for latency and error rate."
+Answer: "First refresh tokens with rotation and reuse detection, because the access-token-only model is the biggest gap. Then an outbox table
+so a crash between commit and enqueue cannot lose a notification, keyset pagination and a FULLTEXT index for the busiest list and search,
+a Redis-backed rate limiter, an OpenAPI spec generated from the validation schemas (today it is hand-written, guarded by a drift test),
+and metrics for latency and error rate. Redis caching, a BullMQ worker, Docker and a CI workflow already exist as extensions."
 
 **P-16. Did you write this yourself? Did you use AI?** Basic (honesty)
 
@@ -2526,7 +2542,8 @@ before making a design decision."
 
 ### Practical coding task (30 min)
 
-Add optimistic locking to your Task API's `PATCH /tasks/:id`: add `version INT NOT NULL DEFAULT 0`, accept
+Add optimistic locking to your Task API's `PATCH /tasks/:id` (the project itself uses `SELECT ... FOR UPDATE`; this is
+Drill 2 in 12_Project_Task_API.md section 15.9): add `version INT NOT NULL DEFAULT 0`, accept
 `version` in the request, update with `WHERE id = ? AND version = ?`, return 409 when `affectedRows` is 0, and
 write one Supertest test that simulates two clients updating the same task.
 
@@ -3365,7 +3382,7 @@ but answer in your own words.
 - 2-1. "Give me a two-minute overview of the project and the one decision you are proudest of."
   Hit: (1) clear architecture in order; (2) one specific decision with reasoning; (3) concrete tech facts (Express, MySQL, JWT, tests); (4) limitation mentioned honestly.
 - 2-2. "How do you make sure user A cannot modify user B's task?"
-  Hit: (1) auth middleware + req.user; (2) ownership in service/query (`WHERE id = ? AND owner_id = ?` or assignee rule); (3) 404/403 reasoning; (4) negative test.
+  Hit: (1) auth middleware + req.user; (2) visibility in service/query (`WHERE id = ? AND (assignee_id = ? OR created_by = ?)` for members; role check for managers/admins); (3) 404/403 reasoning; (4) negative test.
 - 2-3. "Show me where you used a transaction and what would happen without it."
   Hit: (1) specific multi-write example; (2) begin/commit/rollback/release in finally; (3) failure outcome (partial write); (4) concurrency (locks/versions).
 - 2-4. "How would you find out why `GET /tasks` is slow in production?"
@@ -3373,19 +3390,19 @@ but answer in your own words.
 - 2-5. **Live modification:** "Add soft delete: `DELETE /tasks/:id` should mark the task deleted instead of removing it, and lists should hide deleted tasks."
 
 Model answer: "Add a nullable `deleted_at DATETIME` column (migration). DELETE becomes
-`UPDATE tasks SET deleted_at = NOW() WHERE id = ? AND owner_id = ? AND deleted_at IS NULL` and returns 204 or 404 based on
-affectedRows. Every read query adds `AND deleted_at IS NULL`; I centralize that in the repository to avoid forgetting it,
-and add `deleted_at` into the relevant composite indexes if lists get slow. Unique constraints need care (e.g. a
-unique title per project would block recreating after a soft delete; use a generated column or include deleted_at). Admins
-can restore via PATCH. I add tests: a deleted task gives 404, is absent from the list, and another user cannot delete it. A purge job can hard delete
+`UPDATE tasks SET deleted_at = NOW() WHERE id = ? AND deleted_at IS NULL` (the route is already limited to admin and manager) and returns 204 or 404 based on
+affectedRows. Every read query adds `AND t.deleted_at IS NULL`; I centralize that in the repository (`buildWhere` and `findById`) to avoid forgetting it,
+and add `deleted_at` into the relevant composite indexes if lists get slow. Unique constraints need care (e.g. the unique email on users would block re-registering after a
+soft delete of a user; use a generated column or include deleted_at). Admins
+can restore via PATCH. I add tests: a deleted task gives 404, is absent from the list, and a member gets 403 on DELETE. The audit trail (task_events) keeps its rows. A purge job can hard delete
 old rows for privacy compliance."
 
 ```js
-// repository excerpt
-async softDelete(id, ownerId) {
-  const [res] = await this.pool.execute(
-    'UPDATE tasks SET deleted_at = NOW() WHERE id = ? AND owner_id = ? AND deleted_at IS NULL',
-    [id, ownerId],
+// repository excerpt (the project's tasks.repository.js exports plain functions, not a class)
+export async function softDelete(id, executor = pool) {
+  const [res] = await executor.query(
+    'UPDATE tasks SET deleted_at = NOW() WHERE id = ? AND deleted_at IS NULL',
+    [id],
   );
   return res.affectedRows === 1;
 }
